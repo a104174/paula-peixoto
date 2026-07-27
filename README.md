@@ -1,98 +1,161 @@
-# vinext-starter
+# Paula Peixoto
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Website público, reservas e backoffice privado, construídos com Next.js/vinext
+para Cloudflare Workers. Os dados persistentes vivem numa base de dados
+Cloudflare D1 ligada como `DB`.
 
-## Prerequisites
+## Arquitetura de autenticação
 
-- Node.js `>=22.13.0`
+O backoffice usa contas administrativas próprias com email normalizado e
+password. Não existe autenticação ChatGPT, password global ou bypass de
+desenvolvimento.
 
-## Quick Start
+- `admin_users`: contas individuais, roles `owner`/`admin`, estado e hash
+  `scrypt` da password.
+- `admin_sessions`: sessões persistentes; guarda somente SHA-256 do token.
+- `admin_login_attempts`: rate limiting distribuído por IP + email.
+- `admin_password_reset_tokens`: estrutura reservada para recuperação por email.
+- Cookie `paula_admin_session`: `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure`
+  em produção e validade absoluta de 12 dias.
+
+O runtime de produção é um Cloudflare Worker, não um servidor Node.js
+tradicional. O projeto tem `nodejs_compat`, que permite usar o `scrypt` nativo
+de `node:crypto`. D1 guarda reservas, administradores, sessões e contadores de
+rate limit. Não se deve usar memória do processo ou o filesystem do Worker para
+dados persistentes.
+
+## Preparação local
+
+Requisitos: Node.js `>=22.13.0`.
 
 ```bash
 npm install
+npm run db:migrate
+npm run admin:create
 npm run dev
+```
+
+`admin:create` pede email, nome e password sem mostrar a password no terminal.
+Por omissão, os comandos D1 atuam na base local em `.wrangler/state`.
+
+## Produção
+
+Antes do primeiro deploy da versão com autenticação, aplique as migrations à
+mesma D1 ligada ao site. Obtenha o ID e o nome da base no painel Cloudflare:
+
+```bash
+ADMIN_D1_DATABASE_ID="<id-d1>" \
+ADMIN_D1_DATABASE_NAME="<nome-d1>" \
+npm run db:migrate -- --remote
+
+ADMIN_D1_DATABASE_ID="<id-d1>" \
+ADMIN_D1_DATABASE_NAME="<nome-d1>" \
+npm run admin:create -- --remote
+```
+
+O segundo comando pede a password interativamente. Em CI sem TTY, também aceita
+`ADMIN_EMAIL`, `ADMIN_DISPLAY_NAME` e `ADMIN_PASSWORD` apenas no ambiente do
+processo. Nunca coloque esses valores num ficheiro versionado, histórico de
+shell ou configuração do Worker.
+
+Não há variáveis de ambiente de autenticação necessárias em runtime. A binding
+D1 `DB` declarada em `.openai/hosting.json` é obrigatória.
+
+Depois, abra `/admin/login`. Uma conta criada pelo script de bootstrap é
+`owner`; contas futuras criadas por uma área de gestão devem começar com
+`must_change_password=1`.
+
+## Backoffice e migration de agenda
+
+A migration `drizzle/0002_backoffice_calendar.sql` acrescenta:
+
+- `customers`, com nome, telefone, email, notas e datas de auditoria;
+- `business_services`, com duração, preço, cor, ordem e estado ativo;
+- `customer_id` e `duration_minutes` às marcações existentes.
+
+A migration importa clientes já presentes nas reservas, agrupando-os por
+telefone, associa as marcações históricas e preenche a duração a partir do
+serviço conhecido. Os campos de nome, contacto e serviço continuam guardados
+na própria marcação como snapshot histórico.
+
+Deve ser aplicada com o mesmo comando utilizado para as migrations de
+autenticação:
+
+```bash
+npm run db:migrate
+
+# Produção
+ADMIN_D1_DATABASE_ID="<id-d1>" \
+ADMIN_D1_DATABASE_NAME="<nome-d1>" \
+npm run db:migrate -- --remote
+```
+
+O backoffice abre na agenda diária e oferece vista semanal, navegação de
+períodos, pesquisa e filtros. Os slots partem da configuração de horários já
+existente e das horas reais das marcações; o calendário não assume dias úteis
+ou um intervalo rígido. Conflitos são avisados, mas um administrador pode
+confirmar explicitamente a sobreposição.
+
+Serviços inativos deixam de aparecer em novas reservas no backoffice e no
+website, mas o nome, duração e histórico das marcações anteriores permanecem.
+
+## Rotas e proteção
+
+- Públicas: `/`, `/api/availability` e `POST /api/appointments`.
+- Autenticação: `/admin/login`, `/api/auth/login`, `/api/auth/logout`,
+  `/api/auth/session` e `/admin/change-password`.
+- Protegidas: `/admin`, `/admin/change-password` e todas as rotas
+  `/api/admin/*`.
+
+`requireAdmin()` protege páginas e `requireAdminApi()` protege APIs. Operações
+mutáveis validam `Origin`/`Referer`; respostas administrativas usam
+`Cache-Control: no-store`. O endpoint público de reservas só cria marcações,
+valida limites de input e aplica rate limiting D1. Não existe endpoint público
+para alterar ou eliminar reservas.
+
+## Sessões e recuperação operacional
+
+Terminar sessão faz `POST /api/auth/logout`, revoga a sessão na D1 e apaga o
+cookie. Alterar a password revoga todas as sessões e exige novo login. Para
+revogar manualmente todas as sessões de uma conta:
+
+```sql
+UPDATE admin_sessions
+SET revoked_at = datetime('now')
+WHERE user_id = (SELECT id FROM admin_users WHERE email = 'owner@exemplo.pt')
+  AND revoked_at IS NULL;
+```
+
+Se o owner perder a password, execute o procedimento administrativo abaixo.
+Todas as sessões são revogadas e a nova password terá de ser novamente alterada
+depois do login:
+
+```bash
+ADMIN_D1_DATABASE_ID="<id-d1>" \
+ADMIN_D1_DATABASE_NAME="<nome-d1>" \
+ADMIN_EMAIL="owner@exemplo.pt" \
+ADMIN_PASSWORD="<password-temporária-forte>" \
+npm run admin:reset-password -- --remote
+```
+
+Ainda não existe fornecedor de email transacional no projeto. Por isso não foi
+publicado um fluxo de “esqueci-me da password” que pudesse expor tokens. A
+tabela para tokens de utilização única e curta duração está preparada; o fluxo
+só deve ser ativado quando houver envio de email real.
+
+## Gestão de administradores
+
+O schema, roles, revogação por utilizador e guardas `owner` estão preparados,
+mas a interface `/admin/administradores` não foi incluída nesta primeira fase.
+Ao implementá-la, todas as mutações devem usar `requireAdminApi({ role:
+"owner" })`, preservar pelo menos um owner ativo e impedir auto-desativação.
+
+## Verificação
+
+```bash
+npm run lint
+npm run typecheck
+npm run test
 npm run build
+npm audit --audit-level=high
 ```
-
-This starter does not use `wrangler.jsonc`.
-
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
-```
-
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)

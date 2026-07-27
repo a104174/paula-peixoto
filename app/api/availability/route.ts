@@ -5,7 +5,9 @@ import { appointments } from "@/db/schema";
 
 export async function GET(request: NextRequest) {
   const date = request.nextUrl.searchParams.get("date");
-  if (!date) return NextResponse.json({ unavailable: [] });
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return NextResponse.json({ unavailable: [] });
+  }
   await ensureDatabase();
   const rows = await getDb().select({ time: appointments.appointmentTime }).from(appointments)
     .where(and(eq(appointments.appointmentDate, date), ne(appointments.status, "cancelada")));

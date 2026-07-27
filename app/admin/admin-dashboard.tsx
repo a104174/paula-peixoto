@@ -1,221 +1,283 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { availableTimes, services } from "@/lib/services";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AppointmentDialog } from "./appointment-dialog";
+import { CalendarView, statusLabel } from "./calendar-view";
+import { CustomersView } from "./customers-view";
+import { localIsoDate, prettyDay } from "./date-utils";
+import { ServicesView } from "./services-view";
+import type {
+  AdminSection,
+  Appointment,
+  AppointmentStatus,
+  BusinessService,
+  Customer,
+} from "./admin-types";
 
-type Appointment = { id: string; serviceId: string; serviceName: string; appointmentDate: string; appointmentTime: string; customerName: string; phone: string; email: string | null; notes: string | null; status: string; source: string; createdAt: string };
-type AdminForm = { serviceId: string; date: string; time: string; name: string; phone: string; email: string; notes: string; status: string };
+const navigation: { id: AdminSection; label: string; icon: string }[] = [
+  { id: "agenda", label: "Agenda", icon: "◫" },
+  { id: "appointments", label: "Marcações", icon: "◷" },
+  { id: "customers", label: "Clientes", icon: "♙" },
+  { id: "services", label: "Serviços", icon: "✦" },
+  { id: "settings", label: "Definições", icon: "⚙" },
+];
 
-const makeEmptyForm = (): AdminForm => ({ serviceId: services[0].id, date: new Date().toISOString().slice(0, 10), time: availableTimes[0], name: "", phone: "", email: "", notes: "", status: "confirmada" });
-
-// Ícones SVG reutilizáveis para manter o projeto sem dependências externas pesadas
-const Icons = {
-  Calendar: () => <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>,
-  Clock: () => <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>,
-  Check: () => <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>,
-  List: () => <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>,
-  Phone: () => <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>,
-  Mail: () => <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-};
-
-export function AdminDashboard({ displayName }: { displayName: string }) {
+export function AdminDashboard({
+  displayName,
+  role,
+}: {
+  displayName: string;
+  role: "owner" | "admin";
+}) {
+  const [section, setSection] = useState<AdminSection>("agenda");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [filter, setFilter] = useState("todas");
-  const [form, setForm] = useState(makeEmptyForm);
-  const [message, setMessage] = useState({ text: "", type: "" });
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [services, setServices] = useState<BusinessService[]>([]);
+  const [search, setSearch] = useState("");
+  const [date, setDate] = useState(localIsoDate());
+  const [calendarView, setCalendarView] = useState<"day" | "week">("day");
+  const [statusFilter, setStatusFilter] = useState<AppointmentStatus | "all">("all");
+  const [serviceFilter, setServiceFilter] = useState("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const response = await fetch("/api/admin/appointments");
-    const data = await response.json() as { appointments?: Appointment[]; error?: string };
-    setAppointments(data.appointments ?? []);
+  const loadAll = useCallback(async () => {
+    const responses = await Promise.all([
+      fetch("/api/admin/appointments"),
+      fetch("/api/admin/customers"),
+      fetch("/api/admin/services"),
+    ]);
+    if (responses.some((response) => response.status === 401 || response.status === 403)) {
+      window.location.assign("/admin/login");
+      return;
+    }
+    if (responses.some((response) => !response.ok)) {
+      setLoadError("Não foi possível sincronizar todos os dados do backoffice.");
+      setLoading(false);
+      return;
+    }
+    const [appointmentData, customerData, serviceData] = await Promise.all(
+      responses.map((response) => response.json()),
+    ) as [
+      { appointments: Appointment[] },
+      { customers: Customer[] },
+      { services: BusinessService[] },
+    ];
+    setAppointments(appointmentData.appointments);
+    setCustomers(customerData.customers);
+    setServices(serviceData.services);
+    setLoadError("");
     setLoading(false);
   }, []);
 
-  useEffect(() => { load() }, [load]);
+  useEffect(() => {
+    void loadAll();
+  }, [loadAll]);
 
-  const today = new Date().toISOString().slice(0, 10);
-  const stats = useMemo(() => ({
-    today: appointments.filter(i => i.appointmentDate === today && i.status !== "cancelada").length,
-    pending: appointments.filter(i => i.status === "pendente").length,
-    confirmed: appointments.filter(i => i.status === "confirmada").length,
-    total: appointments.filter(i => i.status !== "cancelada").length
-  }), [appointments, today]);
+  const filteredAppointments = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase("pt-PT");
+    return appointments.filter((appointment) => {
+      const matchesQuery = !query || [
+        appointment.customerName,
+        appointment.phone,
+        appointment.email,
+        appointment.serviceName,
+      ].some((value) => value?.toLocaleLowerCase("pt-PT").includes(query));
+      const matchesStatus = statusFilter === "all" || appointment.status === statusFilter;
+      const matchesService = serviceFilter === "all" || appointment.serviceId === serviceFilter;
+      return matchesQuery && matchesStatus && matchesService;
+    });
+  }, [appointments, search, serviceFilter, statusFilter]);
 
-  const visible = appointments.filter(i => filter === "todas" || i.status === filter);
-
-  async function changeStatus(id: string, status: string) {
-    await fetch("/api/admin/appointments", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, status }) });
-    setAppointments(items => items.map(item => item.id === id ? { ...item, status } : item));
+  function openNew(initialDate = date) {
+    setDate(initialDate);
+    setSelectedAppointment(null);
+    setDialogOpen(true);
+  }
+  function openAppointment(appointment: Appointment) {
+    setSelectedAppointment(appointment);
+    setDialogOpen(true);
   }
 
-  async function createAppointment(event: FormEvent) {
-    event.preventDefault();
-    setMessage({ text: "", type: "" });
-    const response = await fetch("/api/admin/appointments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(form) });
-    const data = await response.json() as { appointments?: Appointment[]; error?: string };
-    if (!response.ok) {
-      setMessage({ text: data.error || "Não foi possível guardar.", type: "error" });
-      return;
-    }
-    setMessage({ text: "Marcação adicionada com sucesso.", type: "success" });
-    setForm(makeEmptyForm());
-    await load();
-    setTimeout(() => setMessage({ text: "", type: "" }), 4000);
-  }
-
-  function prettyDate(value: string) {
-    return new Intl.DateTimeFormat("pt-PT", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T12:00:00`));
-  }
+  const todayCount = appointments.filter((item) =>
+    item.appointmentDate === localIsoDate() && item.status !== "cancelada").length;
+  const pendingCount = appointments.filter((item) => item.status === "pendente").length;
 
   return (
-    <div className="admin-shell">
-      <header className="admin-header">
-        <div className="shell">
-          <div className="admin-title">
-            <h1>Visão Geral</h1>
-            <span>Bem-vindo de volta, {displayName}. Aqui está o estado atual do salão.</span>
-          </div>
-          <div className="admin-actions">
-            <a className="btn btn-secondary" href="/">Ver website</a>
-            {process.env.NODE_ENV !== "development" && <a className="btn btn-primary" href="/signout-with-chatgpt?return_to=/">Terminar Sessão</a>}
-          </div>
+    <div className="backoffice-shell">
+      <aside className="admin-sidebar">
+        <div className="sidebar-brand"><span>PP</span><div>Paula Peixoto<small>Backoffice</small></div></div>
+        <nav aria-label="Navegação do backoffice">
+          {navigation.map((item) => (
+            <button className={section === item.id ? "active" : ""} type="button" key={item.id} onClick={() => setSection(item.id)}>
+              <span aria-hidden="true">{item.icon}</span>{item.label}
+              {item.id === "agenda" && todayCount > 0 && <small>{todayCount}</small>}
+              {item.id === "appointments" && pendingCount > 0 && <small>{pendingCount}</small>}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-account">
+          <div className="account-avatar">{displayName.charAt(0).toUpperCase()}</div>
+          <div><strong>{displayName}</strong><span>{role === "owner" ? "Proprietário" : "Administrador"}</span></div>
         </div>
-      </header>
+        <div className="sidebar-links">
+          <Link href="/admin/change-password">Alterar password</Link>
+          <Link href="/">Ver website ↗</Link>
+          <form action="/api/auth/logout" method="post"><button type="submit">Terminar sessão</button></form>
+        </div>
+      </aside>
 
-      <main className="admin-main">
-        <div className="shell">
-          <section className="stats" aria-label="Resumo">
-            <div className="stat">
-              <div className="stat-icon"><Icons.Calendar /></div>
-              <div className="stat-info"><span>Para Hoje</span><strong>{stats.today}</strong></div>
-            </div>
-            <div className="stat">
-              <div className="stat-icon warning"><Icons.Clock /></div>
-              <div className="stat-info"><span>Por Confirmar</span><strong>{stats.pending}</strong></div>
-            </div>
-            <div className="stat">
-              <div className="stat-icon success"><Icons.Check /></div>
-              <div className="stat-info"><span>Confirmadas</span><strong>{stats.confirmed}</strong></div>
-            </div>
-            <div className="stat">
-              <div className="stat-icon neutral"><Icons.List /></div>
-              <div className="stat-info"><span>Total Ativas</span><strong>{stats.total}</strong></div>
-            </div>
-          </section>
+      <div className="admin-workspace">
+        <header className="workspace-header">
+          <div className="mobile-brand"><span>PP</span><strong>Paula Peixoto</strong></div>
+          <label className="global-search">
+            <span aria-hidden="true">⌕</span>
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Pesquisar cliente, telefone ou serviço…"
+              aria-label="Pesquisa global"
+            />
+            {search && <button type="button" onClick={() => setSearch("")} aria-label="Limpar pesquisa">×</button>}
+          </label>
+          <button className="btn btn-primary desktop-new" type="button" onClick={() => openNew()}>＋ Nova marcação</button>
+        </header>
 
-          <div className="admin-grid">
-            <section className="panel agenda-panel">
-              <div className="panel-head">
-                <h2>Agenda de Marcações</h2>
-                <div className="filter-tabs">
-                  {[["todas", "Todas"], ["pendente", "Pendentes"], ["confirmada", "Confirmadas"], ["concluida", "Concluídas"], ["cancelada", "Canceladas"]].map(([value, label]) => (
-                    <button key={value} className={`filter-tab ${filter === value ? "active" : ""}`} onClick={() => setFilter(value)}>{label}</button>
-                  ))}
-                </div>
-              </div>
-
-              {loading ? (
-                <div className="empty skeleton-loader">A sincronizar agenda…</div>
-              ) : visible.length ? (
-                <div className="appointment-list">
-                  {visible.map(a => (
-                    <article className="appointment" key={a.id}>
-                      <div className="appointment-time">
-                        <span className="time-huge">{a.appointmentTime}</span>
-                        <small>{prettyDate(a.appointmentDate)}</small>
-                      </div>
-                      <div className="appointment-info">
-                        <div className="client-header">
-                          <b>{a.customerName}</b>
-                          <span className={`status status-${a.status}`}>{a.status}</span>
-                        </div>
-                        <span className="service-tag">{a.serviceName}</span>
-                        <div className="client-contacts">
-                          <a href={`tel:${a.phone}`} className="contact-link"><Icons.Phone /> {a.phone}</a>
-                          {a.email && <a href={`mailto:${a.email}`} className="contact-link"><Icons.Mail /> {a.email}</a>}
-                        </div>
-                        {a.notes && <div className="appointment-notes"><strong>Notas:</strong> {a.notes}</div>}
-                      </div>
-                      <div className="appointment-controls">
-                        <select className="small-select" aria-label={`Alterar estado de ${a.customerName}`} value={a.status} onChange={e => changeStatus(a.id, e.target.value)}>
-                          <option value="pendente">Marcar como Pendente</option>
-                          <option value="confirmada">Marcar como Confirmada</option>
-                          <option value="concluida">Marcar como Concluída</option>
-                          <option value="cancelada">Cancelar Marcação</option>
-                        </select>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty">
-                  <div className="empty-icon"><Icons.Calendar /></div>
-                  <p>Não existem marcações para este filtro.</p>
-                </div>
+        <main className="workspace-main">
+          {loadError && <div className="workspace-alert" role="alert">{loadError}<button type="button" onClick={() => void loadAll()}>Tentar novamente</button></div>}
+          {loading ? (
+            <div className="workspace-loading"><span /><p>A preparar a agenda…</p></div>
+          ) : (
+            <>
+              {section === "agenda" && (
+                <section className="agenda-view">
+                  <div className="view-heading agenda-heading">
+                    <div><span className="section-kicker">O centro do dia</span><h1>Agenda</h1><p>{todayCount} {todayCount === 1 ? "marcação" : "marcações"} para hoje.</p></div>
+                    <button className="filter-button" type="button" onClick={() => setFiltersOpen((open) => !open)}>
+                      Filtros {(statusFilter !== "all" || serviceFilter !== "all") && <span />}
+                    </button>
+                  </div>
+                  <div className={`agenda-filters ${filtersOpen ? "open" : ""}`}>
+                    <label>Estado
+                      <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as AppointmentStatus | "all")}>
+                        <option value="all">Todos os estados</option>
+                        <option value="pendente">Pendentes</option>
+                        <option value="confirmada">Confirmadas</option>
+                        <option value="concluida">Concluídas</option>
+                        <option value="cancelada">Canceladas</option>
+                      </select>
+                    </label>
+                    <label>Serviço
+                      <select value={serviceFilter} onChange={(event) => setServiceFilter(event.target.value)}>
+                        <option value="all">Todos os serviços</option>
+                        {services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
+                      </select>
+                    </label>
+                    <button className="text-button" type="button" onClick={() => { setStatusFilter("all"); setServiceFilter("all") }}>Limpar filtros</button>
+                  </div>
+                  <CalendarView
+                    appointments={filteredAppointments}
+                    services={services}
+                    date={date}
+                    view={calendarView}
+                    onDateChange={setDate}
+                    onViewChange={setCalendarView}
+                    onSelect={openAppointment}
+                  />
+                </section>
               )}
-            </section>
 
-            <aside className="panel form-panel">
-              <div className="panel-head">
-                <h2>Nova Marcação</h2>
-              </div>
-              <form className="admin-form" onSubmit={createAppointment}>
-                <div className="field">
-                  <label htmlFor="admin-service">Serviço Técnico</label>
-                  <select id="admin-service" value={form.serviceId} onChange={e => setForm({ ...form, serviceId: e.target.value })}>
-                    {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                </div>
-                
-                <div className="field-group">
-                  <div className="field">
-                    <label htmlFor="admin-date">Data</label>
-                    <input id="admin-date" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} required />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="admin-time">Hora</label>
-                    <select id="admin-time" value={form.time} onChange={e => setForm({ ...form, time: e.target.value })}>
-                      {availableTimes.map(t => <option key={t}>{t}</option>)}
-                    </select>
-                  </div>
-                </div>
+              {section === "appointments" && (
+                <AppointmentsView
+                  appointments={filteredAppointments}
+                  onSelect={openAppointment}
+                  onNew={() => openNew()}
+                />
+              )}
+              {section === "customers" && (
+                <CustomersView customers={customers} appointments={appointments} search={search} onReload={loadAll} />
+              )}
+              {section === "services" && <ServicesView services={services} onReload={loadAll} />}
+              {section === "settings" && (
+                <SettingsView displayName={displayName} role={role} />
+              )}
+            </>
+          )}
+        </main>
+      </div>
 
-                <div className="field">
-                  <label htmlFor="admin-name">Nome do Cliente</label>
-                  <input id="admin-name" placeholder="Ex: Maria João" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required />
-                </div>
-                
-                <div className="field-group">
-                  <div className="field">
-                    <label htmlFor="admin-phone">Telemóvel</label>
-                    <input id="admin-phone" placeholder="910 000 000" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} required />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="admin-email">Email (Opcional)</label>
-                    <input id="admin-email" type="email" placeholder="cliente@email.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
-                  </div>
-                </div>
+      <button className="mobile-new" type="button" onClick={() => openNew()} aria-label="Nova marcação">＋</button>
+      <nav className="mobile-admin-nav" aria-label="Navegação móvel">
+        {navigation.map((item) => (
+          <button className={section === item.id ? "active" : ""} type="button" key={item.id} onClick={() => setSection(item.id)}>
+            <span>{item.icon}</span><small>{item.label}</small>
+          </button>
+        ))}
+      </nav>
 
-                <div className="field">
-                  <label htmlFor="admin-notes">Notas Especiais</label>
-                  <textarea id="admin-notes" rows={2} placeholder="Ex: Cabelo muito comprido, necessita descoloração prévia..." value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
-                </div>
-                
-                <button className="btn btn-primary submit-btn">Agendar Serviço</button>
-                
-                {message.text && (
-                  <div className={`form-alert ${message.type}`}>
-                    {message.type === 'success' ? <Icons.Check /> : null}
-                    {message.text}
-                  </div>
-                )}
-              </form>
-            </aside>
-          </div>
-        </div>
-      </main>
+      <AppointmentDialog
+        open={dialogOpen}
+        appointment={selectedAppointment}
+        initialDate={date}
+        customers={customers}
+        services={services}
+        onClose={() => setDialogOpen(false)}
+        onSaved={loadAll}
+      />
     </div>
+  );
+}
+
+function AppointmentsView({
+  appointments,
+  onSelect,
+  onNew,
+}: {
+  appointments: Appointment[];
+  onSelect: (appointment: Appointment) => void;
+  onNew: () => void;
+}) {
+  return (
+    <section className="management-view">
+      <div className="view-heading">
+        <div><span className="section-kicker">Todas as visitas</span><h1>Marcações</h1><p>{appointments.length} resultados com os filtros atuais.</p></div>
+        <button className="btn btn-primary" type="button" onClick={onNew}>Nova marcação</button>
+      </div>
+      <div className="appointments-cards">
+        {appointments.map((appointment) => (
+          <button className="appointment-summary" type="button" key={appointment.id} onClick={() => onSelect(appointment)}>
+            <time><strong>{appointment.appointmentTime}</strong><span>{prettyDay(appointment.appointmentDate, { day: "2-digit", month: "short" })}</span></time>
+            <div><strong>{appointment.customerName}</strong><span>{appointment.serviceName} · {appointment.durationMinutes} min</span><small>{appointment.phone}</small></div>
+            <span className={`status status-${appointment.status}`}>{statusLabel(appointment.status)}</span>
+            <i>›</i>
+          </button>
+        ))}
+        {!appointments.length && <div className="calendar-empty">Nenhuma marcação corresponde à pesquisa.</div>}
+      </div>
+    </section>
+  );
+}
+
+function SettingsView({
+  displayName,
+  role,
+}: {
+  displayName: string;
+  role: "owner" | "admin";
+}) {
+  return (
+    <section className="management-view">
+      <div className="view-heading"><div><span className="section-kicker">Conta e espaço</span><h1>Definições</h1><p>Preferências essenciais do backoffice.</p></div></div>
+      <div className="settings-grid">
+        <article className="settings-card"><span className="account-avatar large">{displayName.charAt(0)}</span><div><h2>{displayName}</h2><p>{role === "owner" ? "Proprietário" : "Administrador"}</p></div><Link className="soft-button" href="/admin/change-password">Alterar password</Link></article>
+        <article className="settings-card"><div><h2>Website público</h2><p>Consulte a experiência que as clientes veem.</p></div><Link className="soft-button" href="/">Abrir website ↗</Link></article>
+        <article className="settings-card"><div><h2>Sessão</h2><p>Termine esta sessão em todos os dispositivos partilhados.</p></div><form action="/api/auth/logout" method="post"><button className="soft-button danger" type="submit">Terminar sessão</button></form></article>
+        <article className="settings-card muted"><div><h2>Horários configuráveis</h2><p>A agenda já deriva os slots das marcações e da configuração atual. Uma futura configuração de horários pode ser adicionada sem alterar o calendário.</p></div></article>
+      </div>
+    </section>
   );
 }

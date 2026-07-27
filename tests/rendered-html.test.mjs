@@ -1,91 +1,397 @@
 import assert from "node:assert/strict";
-import { access, readFile, readdir } from "node:fs/promises";
+import { scrypt as nodeScrypt, createHash } from "node:crypto";
+import { glob, readFile, readdir } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
-const developmentPreviewMeta =
-  /<meta(?=[^>]*\bname=["']codex-preview["'])(?=[^>]*\bcontent=["']development["'])[^>]*>/i;
-const templateRoot = new URL("../", import.meta.url);
-const previewRoot = new URL("../app/_sites-preview/", import.meta.url);
+const ORIGIN = "http://paula.test";
+const CONTROL_HEADER = { "x-test-control": "paula-auth-tests" };
 
-async function render() {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
-
-  return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html" },
-    }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
-    },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
-  );
+async function loadMiniflare() {
+  const packageDirectory = (await readdir("node_modules/.pnpm"))
+    .find((name) => name.startsWith("miniflare@"));
+  if (!packageDirectory) throw new Error("Miniflare não está instalado.");
+  return import(pathToFileURL(
+    `${process.cwd()}/node_modules/.pnpm/${packageDirectory}/node_modules/miniflare/dist/src/index.js`,
+  ));
 }
 
-test("server-renders the starter loading skeleton", async () => {
-  const response = await render();
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
+async function builtModules() {
+  const paths = ["tests/fixtures/worker-wrapper.mjs"];
+  for await (const path of glob("dist/server/**/*.js")) paths.push(path);
+  return paths.map((path) => ({ type: "ESModule", path }));
+}
 
-  const html = await response.text();
-  assert.match(html, developmentPreviewMeta);
-  assert.match(html, /<title>Your site is taking shape<\/title>/i);
-  assert.match(html, /Building your site/);
-  assert.match(html, /Your site is taking shape/);
-  assert.match(
-    html,
-    /Your first version will appear here automatically when it’s ready\./,
-  );
-  assert.doesNotMatch(html, /Codex/);
-  assert.match(html, /react-loading-skeleton/);
-  assert.match(html, /role="status"/);
-});
+async function passwordHash(password) {
+  const salt = Buffer.from("auth-test-salt-1");
+  const key = await new Promise((resolve, reject) => {
+    nodeScrypt(password, salt, 64, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }, (error, result) => {
+      if (error) reject(error);
+      else resolve(result);
+    });
+  });
+  return `scrypt$32768$8$1$${salt.toString("base64url")}$${key.toString("base64url")}`;
+}
 
-test("keeps the loading skeleton scoped and disposable", async () => {
-  const [preview, css, page, layout, packageJson, files] = await Promise.all([
-    readFile(new URL("SkeletonPreview.tsx", previewRoot), "utf8"),
-    readFile(new URL("preview.css", previewRoot), "utf8"),
-    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../package.json", import.meta.url), "utf8"),
-    readdir(previewRoot),
-  ]);
+function tokenHash(token) {
+  return createHash("sha256").update(token).digest("base64url");
+}
 
-  assert.deepEqual(files.sort(), ["SkeletonPreview.tsx", "preview.css"]);
-  assert.match(preview, /from "react-loading-skeleton"/);
-  assert.match(preview, /baseColor="#eceae7"/);
-  assert.match(preview, /highlightColor="#f9f8f6"/);
-  assert.match(preview, /duration=\{2\.8\}/);
-  assert.match(preview, /sites-skeleton-search-placeholder/);
-  assert.match(packageJson, /"react-loading-skeleton": "3\.5\.0"/);
+function cookieFrom(response) {
+  const raw = response.headers.get("set-cookie") || "";
+  return raw.split(";")[0];
+}
 
-  const shellIndex = preview.indexOf('className="sites-skeleton-shell"');
-  const statusIndex = preview.indexOf('className="sites-skeleton-status"');
-  assert.ok(shellIndex >= 0 && statusIndex > shellIndex);
-  assert.match(css, /position:\s*fixed/);
-  assert.match(css, /inset:\s*0/);
-  assert.match(css, /opacity:\s*0\.52/);
-  assert.match(css, /prefers-reduced-motion:\s*reduce/);
-  assert.doesNotMatch(css, /#020617|canvas|pets|progress/i);
-  assert.doesNotMatch(
-    preview,
-    /loading-spinner|status-mark|status-progress|canvas|cookie|random/i,
-  );
+function request(path, options = {}) {
+  const headers = new Headers(options.headers);
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(options.method || "GET")) {
+    headers.set("origin", ORIGIN);
+  }
+  return { ...options, headers };
+}
 
-  assert.match(page, /export const metadata:\s*Metadata/);
-  assert.match(page, /"codex-preview": "development"/);
-  assert.match(page, /<SkeletonPreview \/>/);
-  assert.match(layout, /title:\s*"Starter Project"/);
-  assert.doesNotMatch(layout, /codex-preview|_sites-preview|themeColor|\bViewport\b/);
-  assert.doesNotMatch(css, /(^|\s)(html|body)\s*\{/m);
+test("autenticação administrativa e rotas principais", async (t) => {
+  const { Miniflare } = await loadMiniflare();
+  const mf = new Miniflare({
+    modules: await builtModules(),
+    modulesRoot: process.cwd(),
+    d1Databases: ["DB"],
+    serviceBindings: { ASSETS: async () => new Response("Not found", { status: 404 }) },
+    compatibilityDate: "2026-05-22",
+    compatibilityFlags: ["nodejs_compat"],
+  });
 
-  await assert.rejects(
-    access(new URL("public/_sites-preview", templateRoot)),
-  );
+  const fetchApp = (path, options) => mf.dispatchFetch(`${ORIGIN}${path}`, request(path, options));
+  const sql = async (statement) => {
+    const statements = statement.split(";").map((part) => part.trim()).filter(Boolean);
+    for (const query of statements) {
+      const response = await mf.dispatchFetch(`${ORIGIN}/__test/sql`, {
+        method: "POST",
+        headers: CONTROL_HEADER,
+        body: query,
+      });
+      assert.equal(response.status, 200, await response.text());
+    }
+  };
+
+  try {
+    const migrations = [
+      await readFile("drizzle/0000_curly_lady_bullseye.sql", "utf8"),
+      await readFile("drizzle/0001_admin_auth.sql", "utf8"),
+      await readFile("drizzle/0002_backoffice_calendar.sql", "utf8"),
+    ].join("\n").replaceAll("--> statement-breakpoint", "");
+    await sql(migrations);
+
+    const ownerPassword = "Frase-segura-original-2026";
+    const inactivePassword = "Frase-segura-inativa-2026";
+    const now = new Date().toISOString();
+    await sql(`
+      INSERT INTO admin_users
+        (id,email,password_hash,display_name,role,is_active,must_change_password,created_at,updated_at)
+      VALUES
+        ('owner-1','owner@paula.test','${await passwordHash(ownerPassword)}','Paula','owner',1,0,'${now}','${now}'),
+        ('inactive-1','inativa@paula.test','${await passwordHash(inactivePassword)}','Inativa','admin',0,0,'${now}','${now}');
+    `);
+
+    await t.test("contrato responsivo para mobile compacto e standard", async () => {
+      const [css, dashboard, calendar] = await Promise.all([
+        readFile("app/globals.css", "utf8"),
+        readFile("app/admin/admin-dashboard.tsx", "utf8"),
+        readFile("app/admin/calendar-view.tsx", "utf8"),
+      ]);
+      assert.match(css, /@media\(max-width:760px\)/);
+      assert.match(css, /@media\(max-width:380px\)/);
+      assert.match(css, /\.mobile-admin-nav\{position:fixed/);
+      assert.match(css, /\.mobile-new\{position:fixed/);
+      assert.match(css, /\.appointment-dialog\{height:96svh\}/);
+      assert.doesNotMatch(`${dashboard}${calendar}`, /<table\b/i);
+    });
+
+    await t.test("website público, serviços, reservas e login respondem", async () => {
+      for (const path of ["/", "/servicos", "/reservas", "/admin/login"]) {
+        const response = await fetchApp(path);
+        assert.equal(response.status, 200, path);
+      }
+    });
+
+    await t.test("acesso a /admin sem sessão redireciona", async () => {
+      const response = await fetchApp("/admin", { redirect: "manual" });
+      assert.ok([302, 303, 307, 308].includes(response.status));
+      assert.equal(new URL(response.headers.get("location"), ORIGIN).pathname, "/admin/login");
+    });
+
+    await t.test("API administrativa sem sessão devolve 401", async () => {
+      const response = await fetchApp("/api/admin/appointments");
+      assert.equal(response.status, 401);
+      assert.deepEqual(await response.json(), { error: "Não autenticado" });
+      assert.match(response.headers.get("cache-control") || "", /no-store/);
+    });
+
+    await t.test("login com password errada", async () => {
+      const response = await fetchApp("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": "10.0.0.1" },
+        body: JSON.stringify({ email: "owner@paula.test", password: "password-errada" }),
+      });
+      assert.equal(response.status, 401);
+      assert.equal((await response.json()).error, "Email ou password incorretos.");
+    });
+
+    await t.test("login com email inexistente não permite enumeração", async () => {
+      const response = await fetchApp("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": "10.0.0.2" },
+        body: JSON.stringify({ email: "ninguem@paula.test", password: "password-errada" }),
+      });
+      assert.equal(response.status, 401);
+      assert.equal((await response.json()).error, "Email ou password incorretos.");
+    });
+
+    await t.test("login de administrador inativo", async () => {
+      const response = await fetchApp("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": "10.0.0.3" },
+        body: JSON.stringify({ email: "inativa@paula.test", password: inactivePassword }),
+      });
+      assert.equal(response.status, 401);
+      assert.equal((await response.json()).error, "Email ou password incorretos.");
+    });
+
+    await t.test("rate limit após várias tentativas", async () => {
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        await fetchApp("/api/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json", "cf-connecting-ip": "10.0.0.4" },
+          body: JSON.stringify({ email: "rate@paula.test", password: "password-errada" }),
+        });
+      }
+      const blocked = await fetchApp("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": "10.0.0.4" },
+        body: JSON.stringify({ email: "rate@paula.test", password: "password-errada" }),
+      });
+      assert.equal(blocked.status, 429);
+      assert.ok(Number(blocked.headers.get("retry-after")) >= 1);
+    });
+
+    let ownerCookie = "";
+    await t.test("login válido cria cookie seguro", async () => {
+      const response = await fetchApp("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": "10.0.0.5" },
+        body: JSON.stringify({ email: "OWNER@PAULA.TEST", password: ownerPassword }),
+      });
+      assert.equal(response.status, 200);
+      ownerCookie = cookieFrom(response);
+      const setCookie = response.headers.get("set-cookie") || "";
+      assert.match(ownerCookie, /^paula_admin_session=/);
+      assert.match(setCookie, /HttpOnly/i);
+      assert.match(setCookie, /SameSite=Lax/i);
+      assert.match(setCookie, /Path=\//i);
+      assert.match(setCookie, /Secure/i);
+    });
+
+    await t.test("acesso a /admin e API com sessão válida", async () => {
+      const page = await fetchApp("/admin", { headers: { cookie: ownerCookie } });
+      assert.equal(page.status, 200);
+      assert.match(await page.text(), /Agenda/);
+      const api = await fetchApp("/api/admin/appointments", { headers: { cookie: ownerCookie } });
+      assert.equal(api.status, 200);
+      assert.ok(Array.isArray((await api.json()).appointments));
+    });
+
+    await t.test("gestão de clientes, serviços e conflitos de agenda", async () => {
+      const serviceResponse = await fetchApp("/api/admin/services", { headers: { cookie: ownerCookie } });
+      assert.equal(serviceResponse.status, 200);
+      const serviceData = await serviceResponse.json();
+      assert.ok(serviceData.services.length >= 6);
+      const newServiceResponse = await fetchApp("/api/admin/services", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({
+          name: "Tratamento Teste",
+          description: "Serviço temporário",
+          durationMinutes: 30,
+          price: "20€",
+          color: "#AABBCC",
+        }),
+      });
+      const newServiceBody = await newServiceResponse.json();
+      assert.equal(newServiceResponse.status, 201, JSON.stringify(newServiceBody));
+      const disabled = await fetchApp("/api/admin/services", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({
+          ...newServiceBody.service,
+          isActive: false,
+        }),
+      });
+      assert.equal(disabled.status, 200, await disabled.text());
+      const publicServices = await (await fetchApp("/api/services")).json();
+      assert.ok(!publicServices.services.some((service) => service.id === newServiceBody.service.id));
+
+      const customerResponse = await fetchApp("/api/admin/customers", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({ name: "Cliente Agenda", phone: "930000000", email: "agenda@example.test", notes: "Prefere manhã." }),
+      });
+      const customerBody = await customerResponse.json();
+      assert.equal(customerResponse.status, 201, JSON.stringify(customerBody));
+      const customer = customerBody.customer;
+      const date = new Date(Date.now() + 12 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const payload = {
+        customerId: customer.id,
+        serviceId: "corte-feminino",
+        date,
+        time: "10:00",
+        durationMinutes: 45,
+        status: "confirmada",
+        notes: "Teste de agenda",
+      };
+      const created = await fetchApp("/api/admin/appointments", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify(payload),
+      });
+      assert.equal(created.status, 201, await created.text());
+      const conflict = await fetchApp("/api/admin/appointments", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({ ...payload, time: "10:30" }),
+      });
+      assert.equal(conflict.status, 409);
+      assert.ok((await conflict.json()).conflicts.length >= 1);
+      const override = await fetchApp("/api/admin/appointments", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({ ...payload, time: "10:30", allowConflict: true }),
+      });
+      assert.equal(override.status, 201, await override.text());
+      const appointmentRows = await (await fetchApp("/api/admin/appointments", {
+        headers: { cookie: ownerCookie },
+      })).json();
+      const createdAppointment = appointmentRows.appointments.find((item) =>
+        item.customerId === customer.id && item.appointmentTime === "10:00");
+      const edited = await fetchApp("/api/admin/appointments", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({
+          id: createdAppointment.id,
+          ...payload,
+          time: "12:00",
+          status: "concluida",
+        }),
+      });
+      assert.equal(edited.status, 200, await edited.text());
+    });
+
+    await t.test("token adulterado é rejeitado", async () => {
+      const response = await fetchApp("/api/auth/session", {
+        headers: { cookie: `${ownerCookie}adulterado` },
+      });
+      assert.equal(response.status, 401);
+    });
+
+    await t.test("sessão expirada é rejeitada", async () => {
+      const token = "expired-test-token-with-more-than-thirty-two-characters";
+      const past = new Date(Date.now() - 60_000).toISOString();
+      await sql(`INSERT INTO admin_sessions
+        (id,user_id,token_hash,expires_at,created_at,last_used_at)
+        VALUES ('expired-1','owner-1','${tokenHash(token)}','${past}','${past}','${past}');`);
+      const response = await fetchApp("/api/auth/session", {
+        headers: { cookie: `paula_admin_session=${token}` },
+      });
+      assert.equal(response.status, 401);
+    });
+
+    await t.test("sessão revogada é rejeitada", async () => {
+      const token = "revoked-test-token-with-more-than-thirty-two-characters";
+      const future = new Date(Date.now() + 60_000).toISOString();
+      await sql(`INSERT INTO admin_sessions
+        (id,user_id,token_hash,expires_at,created_at,last_used_at,revoked_at)
+        VALUES ('revoked-1','owner-1','${tokenHash(token)}','${future}','${now}','${now}','${now}');`);
+      const response = await fetchApp("/api/auth/session", {
+        headers: { cookie: `paula_admin_session=${token}` },
+      });
+      assert.equal(response.status, 401);
+    });
+
+    await t.test("administrador desativado perde a sessão existente", async () => {
+      await sql("UPDATE admin_users SET is_active=0 WHERE id='owner-1';");
+      const response = await fetchApp("/api/auth/session", { headers: { cookie: ownerCookie } });
+      assert.equal(response.status, 401);
+      await sql("UPDATE admin_users SET is_active=1 WHERE id='owner-1';");
+    });
+
+    await t.test("logout revoga a sessão e remove o cookie", async () => {
+      const response = await fetchApp("/api/auth/logout", {
+        method: "POST",
+        headers: { cookie: ownerCookie },
+        redirect: "manual",
+      });
+      assert.equal(response.status, 303);
+      assert.match(response.headers.get("set-cookie") || "", /Max-Age=0|Expires=Thu, 01 Jan 1970/i);
+      const session = await fetchApp("/api/auth/session", { headers: { cookie: ownerCookie } });
+      assert.equal(session.status, 401);
+    });
+
+    let passwordCookie = "";
+    await t.test("alteração de password revoga sessões e permite a nova password", async () => {
+      const login = await fetchApp("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": "10.0.0.6" },
+        body: JSON.stringify({ email: "owner@paula.test", password: ownerPassword }),
+      });
+      passwordCookie = cookieFrom(login);
+      const changedPassword = "Nova-frase-segura-2026";
+      const change = await fetchApp("/api/auth/change-password", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: passwordCookie },
+        body: JSON.stringify({
+          currentPassword: ownerPassword,
+          newPassword: changedPassword,
+          confirmation: changedPassword,
+        }),
+      });
+      assert.equal(change.status, 200, await change.text());
+      const oldSession = await fetchApp("/api/auth/session", { headers: { cookie: passwordCookie } });
+      assert.equal(oldSession.status, 401);
+      const newLogin = await fetchApp("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": "10.0.0.7" },
+        body: JSON.stringify({ email: "owner@paula.test", password: changedPassword }),
+      });
+      assert.equal(newLogin.status, 200);
+    });
+
+    await t.test("CSRF bloqueia mutações administrativas cross-origin", async () => {
+      const response = await mf.dispatchFetch(`${ORIGIN}/api/auth/logout`, {
+        method: "POST",
+        headers: { origin: "https://evil.test", cookie: passwordCookie },
+      });
+      assert.equal(response.status, 403);
+    });
+
+    await t.test("criação pública de reserva continua funcional", async () => {
+      const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const response = await fetchApp("/api/appointments", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": "10.0.0.8" },
+        body: JSON.stringify({
+          serviceId: "corte-feminino",
+          date: futureDate,
+          time: "09:30",
+          name: "Cliente Teste",
+          phone: "910000000",
+          email: "cliente@example.test",
+        }),
+      });
+      assert.equal(response.status, 201, await response.text());
+      const availability = await fetchApp(`/api/availability?date=${futureDate}`);
+      assert.equal(availability.status, 200);
+      assert.ok((await availability.json()).unavailable.includes("09:30"));
+    });
+  } finally {
+    await mf.dispose();
+  }
 });

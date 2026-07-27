@@ -8,7 +8,17 @@ const gallery = [
   ["/portfolio/bob.jpg", "Corte moderno"], ["/portfolio/pedicure.jpg", "Pedicure clássica"],
   ["/portfolio/coloracao.jpg", "Coloração luminosa"], ["/portfolio/nail-art.jpg", "Nail art"],
 ];
-const initialForm = { serviceId: services[0].id, date: "", time: "", name: "", phone: "", email: "", notes: "" };
+const initialForm: { serviceId: string; date: string; time: string; name: string; phone: string; email: string; notes: string } = {
+  serviceId: services[0].id, date: "", time: "", name: "", phone: "", email: "", notes: "",
+};
+type PublicService = {
+  id: string;
+  name: string;
+  description: string;
+  duration: number;
+  price: string;
+  icon: string;
+};
 
 export function PublicSite() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -16,13 +26,37 @@ export function PublicSite() {
   const [unavailable, setUnavailable] = useState<string[]>([]);
   const [message, setMessage] = useState({ type: "", text: "" });
   const [sending, setSending] = useState(false);
+  const [displayServices, setDisplayServices] = useState<PublicService[]>(
+    services.map(({ id, name, description, duration, price, icon }) => ({
+      id, name, description, duration, price, icon,
+    })),
+  );
   const minDate = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
-    if (!form.date) { setUnavailable([]); return; }
+    if (!form.date) return;
     fetch(`/api/availability?date=${encodeURIComponent(form.date)}`)
       .then((response) => response.json()).then((data) => setUnavailable((data as { unavailable?: string[] }).unavailable ?? [])).catch(() => setUnavailable([]));
   }, [form.date]);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/services")
+      .then(async (response) => response.json() as Promise<{ services?: Omit<PublicService, "icon">[] }>)
+      .then((data) => {
+        if (!active || !data.services?.length) return;
+        const next = data.services.map((service) => ({
+          ...service,
+          icon: services.find((item) => item.id === service.id)?.icon ?? "✦",
+        }));
+        setDisplayServices(next);
+        setForm((current) => next.some((service) => service.id === current.serviceId)
+          ? current
+          : { ...current, serviceId: next[0].id });
+      })
+      .catch(() => undefined);
+    return () => { active = false };
+  }, []);
 
   function update(key: keyof typeof initialForm, value: string) { setForm((current) => ({ ...current, [key]: value })); }
   function chooseService(id: string) { update("serviceId", id); document.querySelector("#marcar")?.scrollIntoView({ behavior: "smooth" }); }
@@ -68,7 +102,7 @@ export function PublicSite() {
 
       <section className="services" id="servicos"><div className="shell">
         <div className="section-heading"><span className="eyebrow">Serviços</span><h2>Tudo o que precisa para cuidar de si</h2><p>Cada serviço é pensado à medida, com tempo, atenção e respeito pelo seu estilo.</p></div>
-        <div className="service-grid">{services.map((service) => <article className="service-card" key={service.id}>
+        <div className="service-grid">{displayServices.map((service) => <article className="service-card" key={service.id}>
           <div className="service-icon" aria-hidden="true">{service.icon}</div><h3>{service.name}</h3><p>{service.description}</p>
           <div className="service-meta"><span>{service.duration} min</span><button type="button" onClick={() => chooseService(service.id)} style={{border:0,padding:0,background:"transparent",color:"inherit",fontWeight:"inherit"}}>{service.price} · Marcar →</button></div>
         </article>)}</div>
@@ -93,7 +127,7 @@ export function PublicSite() {
         </div>
         <form className="booking-card" onSubmit={submit}><h3>Detalhes da marcação</h3><p>Todos os campos assinalados são necessários.</p>
           <div className="form-grid">
-            <div className="field full"><label htmlFor="service">Serviço</label><select id="service" value={form.serviceId} onChange={(e)=>update("serviceId",e.target.value)} required>{services.map((s)=><option key={s.id} value={s.id}>{s.name} · {s.price}</option>)}</select></div>
+            <div className="field full"><label htmlFor="service">Serviço</label><select id="service" value={form.serviceId} onChange={(e)=>update("serviceId",e.target.value)} required>{displayServices.map((s)=><option key={s.id} value={s.id}>{s.name} · {s.price}</option>)}</select></div>
             <div className="field"><label htmlFor="date">Data pretendida</label><input id="date" type="date" min={minDate} value={form.date} onChange={(e)=>{update("date",e.target.value);update("time","")}} required/></div>
             <div className="field"><label>Horário</label><div className="time-chips">{availableTimes.map((time)=><button className={`time-chip ${form.time===time?"selected":""}`} key={time} type="button" disabled={!form.date||unavailable.includes(time)} onClick={()=>update("time",time)}>{time}</button>)}</div></div>
             <div className="field"><label htmlFor="name">Nome completo</label><input id="name" value={form.name} onChange={(e)=>update("name",e.target.value)} required/></div>
