@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { availableTimes } from "@/lib/services";
-import { localIsoDate } from "./date-utils";
+import { localIsoDate, prettyDay } from "./date-utils";
 import { statusLabel } from "./calendar-view";
 import type { Appointment, AppointmentStatus, BusinessService, Customer } from "./admin-types";
 
@@ -14,6 +14,7 @@ type Props = {
   services: BusinessService[];
   onClose: () => void;
   onSaved: () => Promise<void>;
+  onDeleted: () => Promise<void>;
 };
 
 type Draft = {
@@ -38,12 +39,16 @@ export function AppointmentDialog({
   services,
   onClose,
   onSaved,
+  onDeleted,
 }: Props) {
   const activeServices = services.filter((service) => service.isActive || service.id === appointment?.serviceId);
   const [draft, setDraft] = useState<Draft>(() => emptyDraft(activeServices, initialDate));
   const [error, setError] = useState("");
   const [conflict, setConflict] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -62,6 +67,9 @@ export function AppointmentDialog({
     } : emptyDraft(activeServices, initialDate));
     setError("");
     setConflict(false);
+    setDeleteConfirmOpen(false);
+    setDeleteError("");
+    setDeleting(false);
   }, [open, appointment, initialDate]);
 
   const selectedCustomer = useMemo(
@@ -121,6 +129,31 @@ export function AppointmentDialog({
     await onSaved();
     setSaving(false);
     onClose();
+  }
+
+  async function deleteAppointment() {
+    if (!appointment || deleting) return;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      const response = await fetch("/api/admin/appointments", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: appointment.id }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) {
+        setDeleteError(data.error ?? "Não foi possível eliminar a marcação.");
+        return;
+      }
+      await onDeleted();
+      setDeleteConfirmOpen(false);
+      onClose();
+    } catch {
+      setDeleteError("Não foi possível eliminar a marcação. Verifique a ligação e tente novamente.");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
@@ -200,6 +233,24 @@ export function AppointmentDialog({
               ))}
             </div>
           )}
+          {appointment && (
+            <section className="appointment-danger-zone" aria-labelledby="delete-appointment-heading">
+              <div>
+                <h3 id="delete-appointment-heading">Eliminar marcação</h3>
+                <p>Remove-a definitivamente. Esta ação é diferente de cancelar e não pode ser desfeita.</p>
+              </div>
+              <button
+                className="destructive-button"
+                type="button"
+                onClick={() => {
+                  setDeleteError("");
+                  setDeleteConfirmOpen(true);
+                }}
+              >
+                Eliminar marcação
+              </button>
+            </section>
+          )}
           {error && <div className={`dialog-alert ${conflict ? "warning" : "error"}`} role="alert">{error}</div>}
           <footer className="dialog-footer">
             <button className="soft-button" type="button" onClick={onClose}>Cancelar</button>
@@ -207,6 +258,60 @@ export function AppointmentDialog({
             <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "A guardar…" : appointment ? "Guardar alterações" : "Criar marcação"}</button>
           </footer>
         </form>
+
+        {appointment && deleteConfirmOpen && (
+          <div className="delete-confirm-backdrop" role="presentation">
+            <section
+              className="delete-confirmation"
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="delete-confirm-title"
+              aria-describedby="delete-confirm-description"
+            >
+              <span className="delete-confirm-icon" aria-hidden="true">!</span>
+              <div>
+                <span className="section-kicker">Ação permanente</span>
+                <h3 id="delete-confirm-title">Eliminar esta marcação?</h3>
+              </div>
+              <dl className="delete-appointment-summary">
+                <div><dt>Cliente</dt><dd>{appointment.customerName}</dd></div>
+                <div>
+                  <dt>Data e hora</dt>
+                  <dd>
+                    {prettyDay(appointment.appointmentDate, {
+                      weekday: "long",
+                      day: "2-digit",
+                      month: "long",
+                      year: "numeric",
+                    })}, às {appointment.appointmentTime}
+                  </dd>
+                </div>
+              </dl>
+              <p id="delete-confirm-description">
+                A marcação será eliminada definitivamente da agenda e do histórico. Cancelar apenas altera o estado; eliminar não pode ser desfeito.
+              </p>
+              {deleteError && <div className="dialog-alert error" role="alert">{deleteError}</div>}
+              <footer className="delete-confirm-actions">
+                <button
+                  className="soft-button"
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => setDeleteConfirmOpen(false)}
+                >
+                  Manter marcação
+                </button>
+                <button
+                  className="destructive-button solid"
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => void deleteAppointment()}
+                >
+                  {deleting ? "A eliminar…" : "Sim, eliminar definitivamente"}
+                </button>
+              </footer>
+            </section>
+          </div>
+        )}
       </section>
     </div>
   );

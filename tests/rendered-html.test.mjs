@@ -285,6 +285,100 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.equal(edited.status, 200, await edited.text());
     });
 
+    let deletedFixture = null;
+    await t.test("eliminação autenticada de uma marcação", async () => {
+      const customerResponse = await fetchApp("/api/admin/customers", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({
+          name: "Cliente a manter",
+          phone: "931111111",
+          email: "manter@example.test",
+          notes: "A cliente não deve ser eliminada.",
+        }),
+      });
+      const customerBody = await customerResponse.json();
+      assert.equal(customerResponse.status, 201, JSON.stringify(customerBody));
+
+      const date = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const created = await fetchApp("/api/admin/appointments", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({
+          customerId: customerBody.customer.id,
+          serviceId: "corte-feminino",
+          date,
+          time: "16:00",
+          durationMinutes: 45,
+          status: "confirmada",
+          notes: "Fixture para eliminação",
+        }),
+      });
+      assert.equal(created.status, 201, await created.text());
+
+      const beforeDelete = await (await fetchApp("/api/admin/appointments", {
+        headers: { cookie: ownerCookie },
+      })).json();
+      const appointment = beforeDelete.appointments.find((item) =>
+        item.customerId === customerBody.customer.id && item.appointmentDate === date);
+      assert.ok(appointment);
+      deletedFixture = {
+        appointmentId: appointment.id,
+        customerId: customerBody.customer.id,
+        serviceId: appointment.serviceId,
+      };
+
+      const response = await fetchApp("/api/admin/appointments", {
+        method: "DELETE",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({ id: appointment.id }),
+      });
+      const responseBody = await response.json();
+      assert.equal(response.status, 200, JSON.stringify(responseBody));
+      assert.deepEqual(responseBody, { ok: true, id: appointment.id });
+      const afterDelete = await (await fetchApp("/api/admin/appointments", {
+        headers: { cookie: ownerCookie },
+      })).json();
+      assert.ok(!afterDelete.appointments.some((item) => item.id === appointment.id));
+    });
+
+    await t.test("eliminação sem sessão é rejeitada", async () => {
+      const response = await fetchApp("/api/admin/appointments", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "11111111-1111-4111-8111-111111111111" }),
+      });
+      assert.equal(response.status, 401);
+      assert.deepEqual(await response.json(), { error: "Não autenticado" });
+    });
+
+    await t.test("eliminação de marcação inexistente e duplicada devolve 404", async () => {
+      assert.ok(deletedFixture);
+      const response = await fetchApp("/api/admin/appointments", {
+        method: "DELETE",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({ id: deletedFixture.appointmentId }),
+      });
+      assert.equal(response.status, 404);
+      assert.deepEqual(await response.json(), { error: "Marcação não encontrada." });
+    });
+
+    await t.test("eliminação mantém cliente e serviço na base de dados", async () => {
+      assert.ok(deletedFixture);
+      const [customerResponse, serviceResponse] = await Promise.all([
+        fetchApp("/api/admin/customers", { headers: { cookie: ownerCookie } }),
+        fetchApp("/api/admin/services", { headers: { cookie: ownerCookie } }),
+      ]);
+      assert.equal(customerResponse.status, 200);
+      assert.equal(serviceResponse.status, 200);
+      const [customerBody, serviceBody] = await Promise.all([
+        customerResponse.json(),
+        serviceResponse.json(),
+      ]);
+      assert.ok(customerBody.customers.some((item) => item.id === deletedFixture.customerId));
+      assert.ok(serviceBody.services.some((item) => item.id === deletedFixture.serviceId));
+    });
+
     await t.test("token adulterado é rejeitado", async () => {
       const response = await fetchApp("/api/auth/session", {
         headers: { cookie: `${ownerCookie}adulterado` },

@@ -44,6 +44,7 @@ export function AdminDashboard({
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [feedback, setFeedback] = useState("");
 
   const loadAll = useCallback(async () => {
     const responses = await Promise.all([
@@ -101,6 +102,12 @@ export function AdminDashboard({
   function openAppointment(appointment: Appointment) {
     setSelectedAppointment(appointment);
     setDialogOpen(true);
+  }
+
+  async function handleDeleted() {
+    await loadAll();
+    setFeedback("Marcação eliminada definitivamente.");
+    window.setTimeout(() => setFeedback(""), 4_000);
   }
 
   const todayCount = appointments.filter((item) =>
@@ -211,6 +218,7 @@ export function AdminDashboard({
       </div>
 
       <button className="mobile-new" type="button" onClick={() => openNew()} aria-label="Nova marcação">＋</button>
+      {feedback && <div className="admin-toast" role="status">{feedback}</div>}
       <nav className="mobile-admin-nav" aria-label="Navegação móvel">
         {navigation.map((item) => (
           <button className={section === item.id ? "active" : ""} type="button" key={item.id} onClick={() => setSection(item.id)}>
@@ -227,6 +235,7 @@ export function AdminDashboard({
         services={services}
         onClose={() => setDialogOpen(false)}
         onSaved={loadAll}
+        onDeleted={handleDeleted}
       />
     </div>
   );

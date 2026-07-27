@@ -112,6 +112,22 @@ export async function PATCH(request: NextRequest) {
   return NextResponse.json({ ok: true }, { headers: noStore });
 }
 
+export async function DELETE(request: NextRequest) {
+  const auth = await requireAdminApi(request);
+  if (!auth.ok) return auth.response;
+  await ensureDatabase();
+  const body = await safeBody(request);
+  const id = typeof body?.id === "string" ? body.id : "";
+  if (!body || !isUuid(id)) return apiError("Marcação inválida.", 400);
+
+  const deleted = await getDb().delete(appointments)
+    .where(eq(appointments.id, id))
+    .returning({ id: appointments.id });
+  if (!deleted.length) return apiError("Marcação não encontrada.", 404);
+
+  return NextResponse.json({ ok: true, id: deleted[0].id }, { headers: noStore });
+}
+
 async function parseAppointment(body: Record<string, unknown>, creating: boolean) {
   const serviceId = asLimitedString(body.serviceId, 100);
   const [service] = await getDb().select().from(businessServices)
