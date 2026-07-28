@@ -211,6 +211,30 @@ mas a interface `/admin/administradores` não foi incluída nesta primeira fase.
 Ao implementá-la, todas as mutações devem usar `requireAdminApi({ role:
 "owner" })`, preservar pelo menos um owner ativo e impedir auto-desativação.
 
+## Disponibilidade configurável
+
+A migration `drizzle/0004_configurable_availability.sql` acrescenta três
+tabelas:
+
+- `availability_settings`, com antecedência mínima, horizonte máximo, pausa
+  entre marcações e passo de geração dos horários;
+- `availability_work_periods`, com zero ou vários períodos por dia da semana;
+- `availability_blocks`, para bloqueios horários pontuais e intervalos de dias
+  completos, incluindo férias.
+
+A configuração é editada em **Backoffice → Definições → Disponibilidade**. Um
+dia sem períodos é considerado fechado. Os intervalos do mesmo dia não podem
+sobrepor-se e bloqueios horários só podem abranger um único dia; para vários
+dias deve usar-se “Férias / dias”.
+
+Enquanto não existir a linha `default` em `availability_settings`, a API
+pública mantém os horários históricos de `lib/services.ts`. Depois do primeiro
+“Guardar disponibilidade”, os slots passam a ser calculados a partir dos
+períodos semanais, bloqueios, antecedência, horizonte, marcações não canceladas,
+duração do serviço e pausa entre marcações. A rota administrativa
+`/api/admin/availability` exige a sessão e a proteção de origem/CSRF já usadas
+no restante backoffice.
+
 ## Verificação
 
 ```bash

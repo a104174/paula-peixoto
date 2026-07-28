@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppointmentDialog } from "./appointment-dialog";
+import { AvailabilitySettings } from "./availability-settings";
 import { CalendarView, statusLabel } from "./calendar-view";
 import { CustomersView } from "./customers-view";
 import { localIsoDate, prettyDay } from "./date-utils";
@@ -281,11 +282,11 @@ function SettingsView({
   return (
     <section className="management-view">
       <div className="view-heading"><div><span className="section-kicker">Conta e espaço</span><h1>Definições</h1><p>Preferências essenciais do backoffice.</p></div></div>
+      <AvailabilitySettings />
       <div className="settings-grid">
         <article className="settings-card"><span className="account-avatar large">{displayName.charAt(0)}</span><div><h2>{displayName}</h2><p>{role === "owner" ? "Proprietário" : "Administrador"}</p></div><Link className="soft-button" href="/admin/change-password">Alterar password</Link></article>
         <article className="settings-card"><div><h2>Website público</h2><p>Consulte a experiência que as clientes veem.</p></div><Link className="soft-button" href="/">Abrir website ↗</Link></article>
         <article className="settings-card"><div><h2>Sessão</h2><p>Termine esta sessão em todos os dispositivos partilhados.</p></div><form action="/api/auth/logout" method="post"><button className="soft-button danger" type="submit">Terminar sessão</button></form></article>
-        <article className="settings-card muted"><div><h2>Horários configuráveis</h2><p>A agenda já deriva os slots das marcações e da configuração atual. Uma futura configuração de horários pode ser adicionada sem alterar o calendário.</p></div></article>
       </div>
     </section>
   );

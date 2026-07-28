@@ -156,3 +156,40 @@ export const emailWebhookEvents = sqliteTable("email_webhook_events", {
 ]);
 
 export type EmailOutboxEntry = typeof emailOutbox.$inferSelect;
+
+export const availabilitySettings = sqliteTable("availability_settings", {
+  id: text("id").primaryKey(),
+  minimumNoticeMinutes: integer("minimum_notice_minutes").notNull().default(0),
+  bookingHorizonDays: integer("booking_horizon_days").notNull().default(90),
+  bufferMinutes: integer("buffer_minutes").notNull().default(0),
+  slotIntervalMinutes: integer("slot_interval_minutes").notNull().default(30),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const availabilityWorkPeriods = sqliteTable("availability_work_periods", {
+  id: text("id").primaryKey(),
+  weekday: integer("weekday").notNull(),
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+}, (table) => [
+  index("availability_work_periods_weekday_idx").on(table.weekday, table.sortOrder),
+]);
+
+export const availabilityBlocks = sqliteTable("availability_blocks", {
+  id: text("id").primaryKey(),
+  label: text("label"),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  startTime: text("start_time"),
+  endTime: text("end_time"),
+  allDay: integer("all_day", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  index("availability_blocks_dates_idx").on(table.startDate, table.endDate),
+]);
+
+export type AvailabilitySetting = typeof availabilitySettings.$inferSelect;
+export type AvailabilityWorkPeriod = typeof availabilityWorkPeriods.$inferSelect;
+export type AvailabilityBlock = typeof availabilityBlocks.$inferSelect;

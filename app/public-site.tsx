@@ -24,6 +24,7 @@ export function PublicSite() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [availabilitySlots, setAvailabilitySlots] = useState<string[]>(availableTimes);
   const [unavailable, setUnavailable] = useState<string[]>([]);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [message, setMessage] = useState({ type: "", text: "" });
@@ -49,10 +50,16 @@ export function PublicSite() {
     fetch(`/api/availability?date=${encodeURIComponent(form.date)}`)
       .then((response) => response.json())
       .then((data) => {
-        if (active) setUnavailable((data as { unavailable?: string[] }).unavailable ?? []);
+        if (!active) return;
+        const availability = data as { slots?: string[]; unavailable?: string[] };
+        setAvailabilitySlots(availability.slots ?? availableTimes);
+        setUnavailable(availability.unavailable ?? []);
       })
       .catch(() => {
-        if (active) setUnavailable([]);
+        if (active) {
+          setAvailabilitySlots(availableTimes);
+          setUnavailable([]);
+        }
       })
       .finally(() => {
         if (active) setAvailabilityLoading(false);
@@ -108,8 +115,8 @@ export function PublicSite() {
       const response = await fetch(
         `/api/availability?date=${encodeURIComponent(form.date)}&serviceId=${encodeURIComponent(serviceId)}`,
       );
-      const data = await response.json() as { unavailable?: string[]; error?: string };
-      if (!response.ok || data.unavailable?.includes(form.time)) {
+      const data = await response.json() as { slots?: string[]; unavailable?: string[]; error?: string };
+      if (!response.ok || !data.slots?.includes(form.time) || data.unavailable?.includes(form.time)) {
         setForm((current) => ({ ...current, time: "" }));
         setStep(1);
         setMessage({
@@ -309,7 +316,7 @@ export function PublicSite() {
                         <fieldset className="booking-times" disabled={!form.date || availabilityLoading}>
                           <legend className="times-legend">{form.date ? `Horários para ${formatPublicDate(form.date)}` : "Selecione um dia para ver os horários"}</legend>
                           <div className="time-chips">
-                            {availableTimes.map((time) => (
+                            {availabilitySlots.map((time) => (
                               <button
                                 className={`time-chip ${form.time === time ? "selected" : ""}`}
                                 key={time}
@@ -321,6 +328,7 @@ export function PublicSite() {
                                 {time}
                               </button>
                             ))}
+                            {form.date && !availabilityLoading && availabilitySlots.length === 0 && <p className="availability-note">Não existem horários disponíveis neste dia.</p>}
                           </div>
                           {availabilityLoading && <small className="availability-note pulse-anim">A confirmar disponibilidade…</small>}
                         </fieldset>

@@ -1,11 +1,11 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { ensureDatabase, getDb } from "@/db";
 import { appointments, businessServices, customers } from "@/db/schema";
 import { consumePublicBookingLimit, requestIp } from "@/lib/auth/rate-limit";
 import { asLimitedString, isValidEmail, normalizeEmail } from "@/lib/auth/validation";
 import { queuePublicAppointmentEmails } from "@/lib/email/events";
-import { availableTimes } from "@/lib/services";
+import { isPublicSlotAvailable } from "@/lib/availability";
 
 export async function POST(request: NextRequest) {
   await ensureDatabase();
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
   if (
     !service ||
     !/^\d{4}-\d{2}-\d{2}$/.test(body.date) ||
-    !availableTimes.includes(body.time) ||
+    !/^\d{2}:\d{2}$/.test(body.time) ||
     !name ||
     !phone ||
     (email && !isValidEmail(email))
@@ -43,19 +43,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Preencha os dados obrigatórios da marcação." }, { status: 400 });
   if (body.date < new Date().toISOString().slice(0, 10))
     return NextResponse.json({ error: "Escolha uma data futura." }, { status: 400 });
-  const existing = await getDb().select({
-    time: appointments.appointmentTime,
-    duration: appointments.durationMinutes,
-  }).from(appointments).where(and(
-    eq(appointments.appointmentDate, body.date), ne(appointments.status, "cancelada")
-  ));
-  const requestedStart = minutes(body.time);
-  const requestedEnd = requestedStart + service.durationMinutes;
-  const hasConflict = existing.some((item) => {
-    const existingStart = minutes(item.time);
-    return requestedStart < existingStart + item.duration && requestedEnd > existingStart;
-  });
-  if (hasConflict) return NextResponse.json({ error: "Esse horário acabou de ficar indisponível. Escolha outro." }, { status: 409 });
+  const slot = await isPublicSlotAvailable(body.date, body.time, service.id);
+  if (!slot.available) {
+    return NextResponse.json(
+      { error: "Esse horário acabou de ficar indisponível. Escolha outro." },
+      { status: 409 },
+    );
+  }
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
   const [knownCustomer] = await getDb().select().from(customers)
@@ -84,11 +78,6 @@ export async function POST(request: NextRequest) {
     logEmailIntegrationError("public_appointment_created", id, error);
   }
   return NextResponse.json({ ok: true, id }, { status: 201 });
-}
-
-function minutes(time: string) {
-  const [hours, mins] = time.split(":").map(Number);
-  return hours * 60 + mins;
 }
 
 function logEmailIntegrationError(event: string, appointmentId: string, error: unknown) {

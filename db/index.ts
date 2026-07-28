@@ -97,6 +97,22 @@ async function initializeDatabase() {
       received_at TEXT NOT NULL
     )`),
     d1.prepare("CREATE INDEX IF NOT EXISTS email_webhook_provider_message_idx ON email_webhook_events (provider_message_id)"),
+    d1.prepare(`CREATE TABLE IF NOT EXISTS availability_settings (
+      id TEXT PRIMARY KEY NOT NULL, minimum_notice_minutes INTEGER NOT NULL DEFAULT 0,
+      booking_horizon_days INTEGER NOT NULL DEFAULT 90, buffer_minutes INTEGER NOT NULL DEFAULT 0,
+      slot_interval_minutes INTEGER NOT NULL DEFAULT 30, updated_at TEXT NOT NULL
+    )`),
+    d1.prepare(`CREATE TABLE IF NOT EXISTS availability_work_periods (
+      id TEXT PRIMARY KEY NOT NULL, weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+      start_time TEXT NOT NULL, end_time TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0
+    )`),
+    d1.prepare("CREATE INDEX IF NOT EXISTS availability_work_periods_weekday_idx ON availability_work_periods (weekday, sort_order)"),
+    d1.prepare(`CREATE TABLE IF NOT EXISTS availability_blocks (
+      id TEXT PRIMARY KEY NOT NULL, label TEXT, start_date TEXT NOT NULL, end_date TEXT NOT NULL,
+      start_time TEXT, end_time TEXT, all_day INTEGER NOT NULL DEFAULT 1 CHECK (all_day IN (0, 1)),
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )`),
+    d1.prepare("CREATE INDEX IF NOT EXISTS availability_blocks_dates_idx ON availability_blocks (start_date, end_date)"),
   ]);
 }
 

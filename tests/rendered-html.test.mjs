@@ -99,6 +99,7 @@ test("autenticação administrativa e rotas principais", async (t) => {
       await readFile("drizzle/0001_admin_auth.sql", "utf8"),
       await readFile("drizzle/0002_backoffice_calendar.sql", "utf8"),
       await readFile("drizzle/0003_transactional_email.sql", "utf8"),
+      await readFile("drizzle/0004_configurable_availability.sql", "utf8"),
     ].join("\n").replaceAll("--> statement-breakpoint", "");
     await sql(migrations);
 
@@ -248,6 +249,12 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.equal(response.status, 401);
       assert.deepEqual(await response.json(), { error: "Não autenticado" });
       assert.match(response.headers.get("cache-control") || "", /no-store/);
+    });
+
+    await t.test("API de disponibilidade administrativa exige sessão", async () => {
+      const response = await fetchApp("/api/admin/availability");
+      assert.equal(response.status, 401);
+      assert.deepEqual(await response.json(), { error: "Não autenticado" });
     });
 
     await t.test("login com password errada", async () => {
@@ -575,6 +582,101 @@ test("autenticação administrativa e rotas principais", async (t) => {
       ]);
       assert.ok(customerBody.customers.some((item) => item.id === deletedFixture.customerId));
       assert.ok(serviceBody.services.some((item) => item.id === deletedFixture.serviceId));
+    });
+
+    await t.test("disponibilidade normal, sobreposições, dias fechados e durações diferentes", async () => {
+      const date = new Date(Date.now() + 35 * 86_400_000).toISOString().slice(0, 10);
+      const closedDate = new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+      const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
+      const saved = await fetchApp("/api/admin/availability", {
+        method: "PUT",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({
+          minimumNoticeMinutes: 60,
+          bookingHorizonDays: 90,
+          bufferMinutes: 15,
+          slotIntervalMinutes: 30,
+          periods: [
+            { weekday, startTime: "09:00", endTime: "12:00" },
+            { weekday, startTime: "14:00", endTime: "17:00" },
+          ],
+          blocks: [{
+            label: "Assunto pessoal",
+            startDate: date,
+            endDate: date,
+            startTime: "14:00",
+            endTime: "15:00",
+            allDay: false,
+          }],
+        }),
+      });
+      const savedBody = await saved.json();
+      assert.equal(saved.status, 200, JSON.stringify(savedBody));
+      assert.equal(savedBody.configured, true);
+      assert.equal(savedBody.periods.length, 2);
+
+      const normal = await (await fetchApp(
+        `/api/availability?date=${date}&serviceId=brushing`,
+      )).json();
+      assert.equal(normal.configured, true);
+      assert.ok(normal.slots.includes("09:00"));
+      assert.ok(normal.slots.includes("16:30"));
+      assert.ok(normal.unavailable.includes("14:00"));
+      assert.ok(normal.unavailable.includes("14:30"));
+
+      const longService = await (await fetchApp(
+        `/api/availability?date=${date}&serviceId=coloracao`,
+      )).json();
+      assert.ok(longService.slots.includes("10:30"));
+      assert.ok(!longService.slots.includes("11:00"));
+
+      await sql(`INSERT INTO appointments
+        (id,service_id,service_name,duration_minutes,appointment_date,appointment_time,
+         customer_name,phone,status,source,created_at,updated_at)
+        VALUES ('availability-overlap','brushing','Brushing',30,'${date}','10:00',
+        'Cliente Ocupada','939999999','confirmada','admin','${now}','${now}');`);
+      const overlap = await (await fetchApp(
+        `/api/availability?date=${date}&serviceId=brushing`,
+      )).json();
+      assert.ok(overlap.unavailable.includes("09:30"));
+      assert.ok(overlap.unavailable.includes("10:00"));
+      assert.ok(overlap.unavailable.includes("10:30"));
+
+      const closed = await (await fetchApp(
+        `/api/availability?date=${closedDate}&serviceId=brushing`,
+      )).json();
+      assert.equal(closed.reason, "closed");
+      assert.deepEqual(closed.slots, []);
+    });
+
+    await t.test("intervalos de férias bloqueiam integralmente um dia", async () => {
+      const date = new Date(Date.now() + 42 * 86_400_000).toISOString().slice(0, 10);
+      const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
+      const response = await fetchApp("/api/admin/availability", {
+        method: "PUT",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({
+          minimumNoticeMinutes: 0,
+          bookingHorizonDays: 90,
+          bufferMinutes: 0,
+          slotIntervalMinutes: 30,
+          periods: [{ weekday, startTime: "09:00", endTime: "12:00" }],
+          blocks: [{
+            label: "Férias",
+            startDate: date,
+            endDate: date,
+            allDay: true,
+          }],
+        }),
+      });
+      assert.equal(response.status, 200, await response.text());
+      const availability = await (await fetchApp(
+        `/api/availability?date=${date}&serviceId=brushing`,
+      )).json();
+      assert.equal(availability.reason, "blocked");
+      assert.ok(availability.slots.length > 0);
+      assert.deepEqual(availability.unavailable, availability.slots);
+      await sql("DELETE FROM availability_blocks; DELETE FROM availability_work_periods; DELETE FROM availability_settings;");
     });
 
     await t.test("token adulterado é rejeitado", async () => {
