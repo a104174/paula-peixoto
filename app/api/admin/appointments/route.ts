@@ -4,6 +4,11 @@ import { ensureDatabase, getDb } from "@/db";
 import { appointments, businessServices, customers } from "@/db/schema";
 import { requireAdminApi } from "@/lib/auth/current-admin";
 import { asLimitedString, isValidEmail, normalizeEmail } from "@/lib/auth/validation";
+import {
+  queueAdminCreatedAppointmentEmail,
+  queueAppointmentChangedEmail,
+  withServicePrice,
+} from "@/lib/email/events";
 
 const noStore = { "Cache-Control": "no-store, private" };
 const statuses = ["pendente", "confirmada", "concluida", "cancelada"] as const;
@@ -37,7 +42,7 @@ export async function POST(request: NextRequest) {
   const now = new Date().toISOString();
   const customer = await resolveCustomer(body, now);
   if (!customer) return apiError("Selecione uma cliente ou preencha nome e telefone.", 400);
-  await getDb().insert(appointments).values({
+  const appointment = {
     id: crypto.randomUUID(),
     customerId: customer.id,
     serviceId: parsed.value.service.id,
@@ -53,8 +58,14 @@ export async function POST(request: NextRequest) {
     source: "interno",
     createdAt: now,
     updatedAt: now,
-  });
-  return NextResponse.json({ ok: true }, { status: 201, headers: noStore });
+  };
+  await getDb().insert(appointments).values(appointment);
+  try {
+    await queueAdminCreatedAppointmentEmail(withServicePrice(appointment, parsed.value.service));
+  } catch (error) {
+    logEmailIntegrationError("admin_appointment_created", appointment.id, error);
+  }
+  return NextResponse.json({ ok: true, id: appointment.id }, { status: 201, headers: noStore });
 }
 
 export async function PATCH(request: NextRequest) {
@@ -70,10 +81,19 @@ export async function PATCH(request: NextRequest) {
 
   // A status-only update remains supported for older clients.
   if (typeof body.status === "string" && statuses.includes(body.status as typeof statuses[number]) && !body.serviceId) {
+    const updatedAt = new Date().toISOString();
     await getDb().update(appointments).set({
       status: body.status,
-      updatedAt: new Date().toISOString(),
+      updatedAt,
     }).where(eq(appointments.id, id));
+    const current = { ...existing, status: body.status, updatedAt };
+    try {
+      const [service] = await getDb().select({ price: businessServices.price })
+        .from(businessServices).where(eq(businessServices.id, existing.serviceId)).limit(1);
+      await queueAppointmentChangedEmail(existing, withServicePrice(current, service));
+    } catch (error) {
+      logEmailIntegrationError("admin_appointment_status_changed", id, error);
+    }
     return NextResponse.json({ ok: true }, { headers: noStore });
   }
 
@@ -95,7 +115,7 @@ export async function PATCH(request: NextRequest) {
   const now = new Date().toISOString();
   const customer = await resolveCustomer(body, now);
   if (!customer) return apiError("Selecione uma cliente ou preencha nome e telefone.", 400);
-  await getDb().update(appointments).set({
+  const changes = {
     customerId: customer.id,
     serviceId: parsed.value.service.id,
     serviceName: parsed.value.service.name,
@@ -108,7 +128,16 @@ export async function PATCH(request: NextRequest) {
     notes: parsed.value.notes,
     status: parsed.value.status,
     updatedAt: now,
-  }).where(eq(appointments.id, id));
+  };
+  await getDb().update(appointments).set(changes).where(eq(appointments.id, id));
+  try {
+    await queueAppointmentChangedEmail(
+      existing,
+      withServicePrice({ ...existing, ...changes }, parsed.value.service),
+    );
+  } catch (error) {
+    logEmailIntegrationError("admin_appointment_changed", id, error);
+  }
   return NextResponse.json({ ok: true }, { headers: noStore });
 }
 
@@ -232,4 +261,13 @@ function isTime(value: string) {
 }
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function logEmailIntegrationError(event: string, appointmentId: string, error: unknown) {
+  console.error(JSON.stringify({
+    event: "email_integration_failed",
+    appointmentEvent: event,
+    appointmentId,
+    errorType: error instanceof Error ? error.name : "unknown",
+  }));
 }

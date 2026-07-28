@@ -81,6 +81,22 @@ async function initializeDatabase() {
       FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE CASCADE
     )`),
     d1.prepare("CREATE INDEX IF NOT EXISTS admin_password_reset_user_idx ON admin_password_reset_tokens (user_id)"),
+    d1.prepare(`CREATE TABLE IF NOT EXISTS email_outbox (
+      id TEXT PRIMARY KEY NOT NULL, appointment_id TEXT NOT NULL, recipient TEXT NOT NULL,
+      type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT, idempotency_key TEXT NOT NULL UNIQUE, provider TEXT NOT NULL,
+      provider_message_id TEXT, subject TEXT NOT NULL, html_body TEXT NOT NULL, text_body TEXT NOT NULL,
+      last_event TEXT, last_event_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, sent_at TEXT
+    )`),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS email_outbox_idempotency_unique ON email_outbox (idempotency_key)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS email_outbox_appointment_idx ON email_outbox (appointment_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS email_outbox_status_idx ON email_outbox (status)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS email_outbox_provider_message_idx ON email_outbox (provider_message_id)"),
+    d1.prepare(`CREATE TABLE IF NOT EXISTS email_webhook_events (
+      id TEXT PRIMARY KEY NOT NULL, event_type TEXT NOT NULL, provider_message_id TEXT,
+      received_at TEXT NOT NULL
+    )`),
+    d1.prepare("CREATE INDEX IF NOT EXISTS email_webhook_provider_message_idx ON email_webhook_events (provider_message_id)"),
   ]);
 }
 

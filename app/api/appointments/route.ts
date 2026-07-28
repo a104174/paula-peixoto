@@ -4,6 +4,7 @@ import { ensureDatabase, getDb } from "@/db";
 import { appointments, businessServices, customers } from "@/db/schema";
 import { consumePublicBookingLimit, requestIp } from "@/lib/auth/rate-limit";
 import { asLimitedString, isValidEmail, normalizeEmail } from "@/lib/auth/validation";
+import { queuePublicAppointmentEmails } from "@/lib/email/events";
 import { availableTimes } from "@/lib/services";
 
 export async function POST(request: NextRequest) {
@@ -71,15 +72,30 @@ export async function POST(request: NextRequest) {
       updatedAt: now,
     });
   }
-  await getDb().insert(appointments).values({ id, customerId, serviceId: service.id, serviceName: service.name,
+  const appointment = { id, customerId, serviceId: service.id, serviceName: service.name,
     durationMinutes: service.durationMinutes, appointmentDate: body.date,
     appointmentTime: body.time, customerName: name, phone,
     email: email || null, notes: asLimitedString(body.notes, 1000) || null,
-    status: "pendente", source: "website", createdAt: now, updatedAt: now });
+    status: "pendente", source: "website", createdAt: now, updatedAt: now };
+  await getDb().insert(appointments).values(appointment);
+  try {
+    await queuePublicAppointmentEmails({ ...appointment, price: service.price });
+  } catch (error) {
+    logEmailIntegrationError("public_appointment_created", id, error);
+  }
   return NextResponse.json({ ok: true, id }, { status: 201 });
 }
 
 function minutes(time: string) {
   const [hours, mins] = time.split(":").map(Number);
   return hours * 60 + mins;
+}
+
+function logEmailIntegrationError(event: string, appointmentId: string, error: unknown) {
+  console.error(JSON.stringify({
+    event: "email_integration_failed",
+    appointmentEvent: event,
+    appointmentId,
+    errorType: error instanceof Error ? error.name : "unknown",
+  }));
 }

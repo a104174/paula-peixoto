@@ -138,10 +138,71 @@ ADMIN_PASSWORD="<password-temporária-forte>" \
 npm run admin:reset-password -- --remote
 ```
 
-Ainda não existe fornecedor de email transacional no projeto. Por isso não foi
-publicado um fluxo de “esqueci-me da password” que pudesse expor tokens. A
-tabela para tokens de utilização única e curta duração está preparada; o fluxo
-só deve ser ativado quando houver envio de email real.
+O envio de email transacional permanece desativado. Por isso não foi publicado
+um fluxo de “esqueci-me da password” que pudesse expor tokens. A tabela para
+tokens de utilização única e curta duração está preparada; o fluxo só deve ser
+ativado quando houver envio de email real.
+
+## Email transacional preparado (envio desativado)
+
+O módulo central em `lib/email` suporta os providers `disabled` e `resend`.
+Por omissão, e enquanto não existir uma conta Resend, use:
+
+```dotenv
+EMAIL_ENABLED=false
+EMAIL_PROVIDER=disabled
+RESEND_API_KEY=
+EMAIL_FROM=Paula Peixoto <marcacoes@seudominio.pt>
+PAULA_NOTIFICATION_EMAIL=
+APP_URL=https://seudominio.pt
+RESEND_WEBHOOK_SECRET=
+```
+
+Com `EMAIL_ENABLED=false`, o sistema nunca contacta a Resend. Os eventos
+aplicáveis são renderizados e registados em `email_outbox` com estado
+`disabled`, tentativas `0` e uma chave de idempotência única. A interface
+pública confirma apenas que o pedido de marcação foi recebido; não afirma que
+um email foi enviado.
+
+A migration `drizzle/0003_transactional_email.sql` cria:
+
+- `email_outbox`, que guarda destinatário, tipo, estado, tentativas, erro,
+  conteúdo renderizado, IDs do provider e associação à marcação;
+- `email_webhook_events`, que deduplica webhooks através do header `svix-id`.
+
+Para ver todos os templates durante desenvolvimento:
+
+```bash
+cp .dev.vars.example .dev.vars
+npm run dev
+# abrir http://localhost:3000/email-preview
+```
+
+A página de preview não está disponível em produção e nunca envia mensagens.
+Existem versões HTML e texto para pedido recebido, novo pedido para a Paula,
+confirmação, reagendamento e cancelamento.
+
+### Ativação futura com Resend
+
+1. Criar a conta Resend, verificar o domínio remetente e aplicar a migration
+   `0003_transactional_email` à D1 de produção.
+2. Configurar `RESEND_API_KEY` e `RESEND_WEBHOOK_SECRET` como secrets do Worker.
+   Configurar as restantes variáveis como valores de runtime; não as colocar
+   no repositório.
+3. Registar na Resend o webhook HTTPS
+   `https://seudominio.pt/api/webhooks/resend`. O endpoint valida o corpo raw,
+   os headers `svix-*`, a janela temporal da assinatura e eventos repetidos.
+4. Definir um remetente do domínio verificado em `EMAIL_FROM`, o email da Paula
+   em `PAULA_NOTIFICATION_EMAIL`, o URL canónico em `APP_URL` e então alterar:
+
+```dotenv
+EMAIL_ENABLED=true
+EMAIL_PROVIDER=resend
+```
+
+As chamadas a `POST /emails` usam `Idempotency-Key`. A outbox mantém uma
+segunda proteção local e regista aceitação, entrega, atraso ou falha comunicada
+pelo webhook. Falhas de email nunca revertem uma marcação já guardada.
 
 ## Gestão de administradores
 

@@ -119,3 +119,40 @@ export const adminPasswordResetTokens = sqliteTable("admin_password_reset_tokens
 
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type AdminSession = typeof adminSessions.$inferSelect;
+
+export const emailOutbox = sqliteTable("email_outbox", {
+  id: text("id").primaryKey(),
+  appointmentId: text("appointment_id").notNull(),
+  recipient: text("recipient").notNull(),
+  type: text("type").notNull(),
+  status: text("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  provider: text("provider").notNull(),
+  providerMessageId: text("provider_message_id"),
+  subject: text("subject").notNull(),
+  htmlBody: text("html_body").notNull(),
+  textBody: text("text_body").notNull(),
+  lastEvent: text("last_event"),
+  lastEventAt: text("last_event_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  sentAt: text("sent_at"),
+}, (table) => [
+  uniqueIndex("email_outbox_idempotency_unique").on(table.idempotencyKey),
+  index("email_outbox_appointment_idx").on(table.appointmentId),
+  index("email_outbox_status_idx").on(table.status),
+  index("email_outbox_provider_message_idx").on(table.providerMessageId),
+]);
+
+export const emailWebhookEvents = sqliteTable("email_webhook_events", {
+  id: text("id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  providerMessageId: text("provider_message_id"),
+  receivedAt: text("received_at").notNull(),
+}, (table) => [
+  index("email_webhook_provider_message_idx").on(table.providerMessageId),
+]);
+
+export type EmailOutboxEntry = typeof emailOutbox.$inferSelect;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { scrypt as nodeScrypt, createHash } from "node:crypto";
+import { scrypt as nodeScrypt, createHash, createHmac } from "node:crypto";
 import { glob, readFile, readdir } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
@@ -56,6 +56,15 @@ test("autenticação administrativa e rotas principais", async (t) => {
     modules: await builtModules(),
     modulesRoot: process.cwd(),
     d1Databases: ["DB"],
+    bindings: {
+      EMAIL_ENABLED: "false",
+      EMAIL_PROVIDER: "resend",
+      RESEND_API_KEY: "must-not-be-used",
+      EMAIL_FROM: "Paula Peixoto <marcacoes@example.test>",
+      PAULA_NOTIFICATION_EMAIL: "paula@example.test",
+      APP_URL: ORIGIN,
+      RESEND_WEBHOOK_SECRET: "",
+    },
     serviceBindings: { ASSETS: async () => new Response("Not found", { status: 404 }) },
     compatibilityDate: "2026-05-22",
     compatibilityFlags: ["nodejs_compat"],
@@ -73,12 +82,23 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.equal(response.status, 200, await response.text());
     }
   };
+  const sqlRows = async (statement) => {
+    const response = await mf.dispatchFetch(`${ORIGIN}/__test/sql`, {
+      method: "POST",
+      headers: CONTROL_HEADER,
+      body: statement,
+    });
+    const body = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(body));
+    return body.results;
+  };
 
   try {
     const migrations = [
       await readFile("drizzle/0000_curly_lady_bullseye.sql", "utf8"),
       await readFile("drizzle/0001_admin_auth.sql", "utf8"),
       await readFile("drizzle/0002_backoffice_calendar.sql", "utf8"),
+      await readFile("drizzle/0003_transactional_email.sql", "utf8"),
     ].join("\n").replaceAll("--> statement-breakpoint", "");
     await sql(migrations);
 
@@ -122,6 +142,99 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(html, /Quando gostaria de vir/);
       assert.doesNotMatch(html, /Nome completo/);
       assert.doesNotMatch(html, /Enviar pedido de marcação/);
+    });
+
+    await t.test("templates transacionais e preview local estão preparados", async () => {
+      const [templates, preview] = await Promise.all([
+        readFile("lib/email/templates.ts", "utf8"),
+        readFile("app/email-preview/page.tsx", "utf8"),
+      ]);
+      for (const type of [
+        "request_received",
+        "new_appointment_paula",
+        "appointment_confirmed",
+        "appointment_rescheduled",
+        "appointment_cancelled",
+      ]) assert.match(templates, new RegExp(type));
+      assert.match(preview, /NODE_ENV === "production"/);
+      assert.match(preview, /não envia emails nem contacta o provider/);
+      const productionPreview = await fetchApp("/email-preview");
+      assert.equal(productionPreview.status, 404);
+    });
+
+    await t.test("webhook Resend fica inativo sem secret", async () => {
+      const response = await fetchApp("/api/webhooks/resend", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      assert.equal(response.status, 503);
+      assert.deepEqual(await response.json(), { error: "Webhook não configurado." });
+    });
+
+    await t.test("webhook Resend valida assinatura e deduplica svix-id", async () => {
+      const webhookSecret = "webhook-test-secret";
+      const signingSecret = `whsec_${Buffer.from(webhookSecret).toString("base64")}`;
+      const webhookMf = new Miniflare({
+        modules: await builtModules(),
+        modulesRoot: process.cwd(),
+        d1Databases: ["DB"],
+        bindings: {
+          EMAIL_ENABLED: "false",
+          EMAIL_PROVIDER: "disabled",
+          RESEND_WEBHOOK_SECRET: signingSecret,
+        },
+        serviceBindings: { ASSETS: async () => new Response("Not found", { status: 404 }) },
+        compatibilityDate: "2026-05-22",
+        compatibilityFlags: ["nodejs_compat"],
+      });
+      try {
+        for (const query of migrations.split(";").map((part) => part.trim()).filter(Boolean)) {
+          const migrated = await webhookMf.dispatchFetch(`${ORIGIN}/__test/sql`, {
+            method: "POST",
+            headers: CONTROL_HEADER,
+            body: query,
+          });
+          assert.equal(migrated.status, 200, await migrated.text());
+        }
+        const id = "msg_webhook_test";
+        const timestamp = String(Math.floor(Date.now() / 1000));
+        const payload = JSON.stringify({
+          type: "email.delivered",
+          created_at: new Date().toISOString(),
+          data: { email_id: "email_unknown" },
+        });
+        const signature = createHmac("sha256", webhookSecret)
+          .update(`${id}.${timestamp}.${payload}`)
+          .digest("base64");
+        const webhookHeaders = {
+          "content-type": "application/json",
+          "svix-id": id,
+          "svix-timestamp": timestamp,
+          "svix-signature": `v1,${signature}`,
+        };
+        const invalid = await webhookMf.dispatchFetch(`${ORIGIN}/api/webhooks/resend`, {
+          method: "POST",
+          headers: { ...webhookHeaders, "svix-signature": "v1,invalid" },
+          body: payload,
+        });
+        assert.equal(invalid.status, 400);
+        const accepted = await webhookMf.dispatchFetch(`${ORIGIN}/api/webhooks/resend`, {
+          method: "POST",
+          headers: webhookHeaders,
+          body: payload,
+        });
+        assert.equal(accepted.status, 200, await accepted.text());
+        const duplicate = await webhookMf.dispatchFetch(`${ORIGIN}/api/webhooks/resend`, {
+          method: "POST",
+          headers: webhookHeaders,
+          body: payload,
+        });
+        assert.equal(duplicate.status, 200);
+        assert.equal((await duplicate.json()).duplicate, true);
+      } finally {
+        await webhookMf.dispose();
+      }
     });
 
     await t.test("acesso a /admin sem sessão redireciona", async () => {
@@ -293,6 +406,81 @@ test("autenticação administrativa e rotas principais", async (t) => {
         }),
       });
       assert.equal(edited.status, 200, await edited.text());
+    });
+
+    await t.test("outbox evita emails duplicados em eventos administrativos repetidos", async () => {
+      const customerResponse = await fetchApp("/api/admin/customers", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({
+          name: "Cliente Email",
+          phone: "932222222",
+          email: "outbox@example.test",
+        }),
+      });
+      const customerBody = await customerResponse.json();
+      assert.equal(customerResponse.status, 201, JSON.stringify(customerBody));
+      const date = new Date(Date.now() + 24 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const created = await fetchApp("/api/admin/appointments", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({
+          customerId: customerBody.customer.id,
+          serviceId: "brushing",
+          date,
+          time: "14:00",
+          durationMinutes: 30,
+          status: "pendente",
+        }),
+      });
+      const createdBody = await created.json();
+      assert.equal(created.status, 201, JSON.stringify(createdBody));
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const confirmed = await fetchApp("/api/admin/appointments", {
+          method: "PATCH",
+          headers: { "content-type": "application/json", cookie: ownerCookie },
+          body: JSON.stringify({ id: createdBody.id, status: "confirmada" }),
+        });
+        assert.equal(confirmed.status, 200, await confirmed.text());
+      }
+      const rescheduled = await fetchApp("/api/admin/appointments", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({
+          id: createdBody.id,
+          customerId: customerBody.customer.id,
+          serviceId: "brushing",
+          date,
+          time: "15:00",
+          durationMinutes: 30,
+          status: "confirmada",
+          notes: "",
+        }),
+      });
+      assert.equal(rescheduled.status, 200, await rescheduled.text());
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const cancelled = await fetchApp("/api/admin/appointments", {
+          method: "PATCH",
+          headers: { "content-type": "application/json", cookie: ownerCookie },
+          body: JSON.stringify({ id: createdBody.id, status: "cancelada" }),
+        });
+        assert.equal(cancelled.status, 200, await cancelled.text());
+      }
+      const rows = await sqlRows(
+        `SELECT type,status,attempts,provider,idempotency_key FROM email_outbox
+         WHERE appointment_id='${createdBody.id}' ORDER BY type`,
+      );
+      assert.deepEqual(rows.map((row) => row.type), [
+        "appointment_cancelled",
+        "appointment_confirmed",
+        "appointment_rescheduled",
+      ]);
+      assert.ok(rows.every((row) =>
+        row.status === "disabled" &&
+        row.attempts === 0 &&
+        row.provider === "disabled" &&
+        row.idempotency_key.length <= 256));
     });
 
     let deletedFixture = null;
@@ -490,7 +678,8 @@ test("autenticação administrativa e rotas principais", async (t) => {
           email: "cliente@example.test",
         }),
       });
-      assert.equal(response.status, 201, await response.text());
+      const responseBody = await response.json();
+      assert.equal(response.status, 201, JSON.stringify(responseBody));
       const availability = await fetchApp(`/api/availability?date=${futureDate}`);
       assert.equal(availability.status, 200);
       assert.ok((await availability.json()).unavailable.includes("09:30"));
@@ -513,6 +702,39 @@ test("autenticação administrativa e rotas principais", async (t) => {
         }),
       });
       assert.equal(overlap.status, 409);
+
+      const outboxRows = await sqlRows(
+        `SELECT recipient,type,status,attempts,provider FROM email_outbox
+         WHERE appointment_id='${responseBody.id}' ORDER BY type`,
+      );
+      assert.deepEqual(outboxRows.map((row) => row.type), [
+        "new_appointment_paula",
+        "request_received",
+      ]);
+      assert.ok(outboxRows.every((row) =>
+        row.status === "disabled" && row.attempts === 0 && row.provider === "disabled"));
+    });
+
+    await t.test("falha da outbox não reverte a reserva", async () => {
+      await sql("DROP TABLE email_outbox;");
+      const futureDate = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const response = await fetchApp("/api/appointments", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": "10.0.0.10" },
+        body: JSON.stringify({
+          serviceId: "manicure",
+          date: futureDate,
+          time: "15:00",
+          name: "Cliente Sem Outbox",
+          phone: "910000002",
+          email: "sem-outbox@example.test",
+        }),
+      });
+      assert.equal(response.status, 201, await response.text());
+      const appointments = await sqlRows(
+        "SELECT id FROM appointments WHERE phone='910000002'",
+      );
+      assert.equal(appointments.length, 1);
     });
   } finally {
     await mf.dispose();

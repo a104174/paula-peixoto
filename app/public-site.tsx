@@ -196,7 +196,7 @@ export function PublicSite() {
         <div className="section-heading"><span className="eyebrow">Serviços</span><h2>Tudo o que precisa para cuidar de si</h2><p>Cada serviço é pensado à medida, com tempo, atenção e respeito pelo seu estilo.</p></div>
         <div className="service-grid">{displayServices.map((service) => <article className="service-card" key={service.id}>
           <div className="service-icon" aria-hidden="true">{service.icon}</div><h3>{service.name}</h3><p>{service.description}</p>
-          <div className="service-meta"><span>{service.duration} min</span><button type="button" onClick={() => chooseService(service.id)} style={{border:0,padding:0,background:"transparent",color:"inherit",fontWeight:"inherit"}}>{service.price} · Marcar →</button></div>
+          <div className="service-meta"><span>{service.duration} min</span><button type="button" onClick={() => chooseService(service.id)} style={{border:0,padding:0,background:"transparent",color:"inherit",fontWeight:"inherit"}}>A partir de {service.price} · Marcar →</button></div>
         </article>)}</div>
       </div></section>
 
@@ -213,182 +213,210 @@ export function PublicSite() {
         <div className="gallery-grid">{gallery.map(([src,label]) => <figure className="gallery-item" key={src}><img src={src} alt={label}/><span>{label}</span></figure>)}</div>
       </div></section>
 
-      <section className="booking" id="marcar"><div className="shell booking-grid">
-        <div className="booking-intro" id="contacto"><span className="eyebrow">Marcação</span><h2>Escolha o seu momento de cuidado</h2><p>Um pedido simples, em três passos. Comece pelo momento que lhe é mais conveniente e confirme todos os detalhes antes de enviar.</p>
-          <div className="contact-list"><div className="contact-line"><i>☎</i><div><b>Contacto</b><span>+351 912 345 678</span></div></div><div className="contact-line"><i>⌖</i><div><b>Localização</b><span>Rua Exemplo, 123 · Porto</span></div></div><div className="contact-line"><i>◷</i><div><b>Horário</b><span>Terça a sábado · 09:30–19:00</span></div></div></div>
-        </div>
-        <form className="booking-card booking-wizard" ref={bookingFormRef} onSubmit={submit} noValidate={step === 3}>
-          {submitted ? (
-            <div className="booking-success" role="status" tabIndex={-1}>
-              <span aria-hidden="true">✓</span>
-              <p className="eyebrow">Pedido recebido</p>
-              <h3>Obrigada, {form.name.split(" ")[0]}.</h3>
-              <p>O seu pedido para {formatPublicDate(form.date)}, às {form.time}, foi enviado. A Paula entrará em contacto para confirmar.</p>
-              <div className="booking-success-detail">
-                <strong>{selectedService?.name}</strong>
-                <span>{selectedService?.duration} min{selectedService?.price ? ` · ${selectedService.price}` : ""}</span>
-              </div>
+      {/* SECÇÃO DE MARCAÇÕES REDESENHADA */}
+      <section className="booking" id="marcar">
+        <div className="shell booking-layout">
+          <div className="booking-intro-centered" id="contacto">
+            <span className="eyebrow">Marcação</span>
+            <h2>Escolha o seu momento de cuidado</h2>
+            <p>Um pedido simples, em três passos. Comece pelo momento que lhe é mais conveniente e confirme todos os detalhes antes de enviar.</p>
+
+            <div className="contact-list-horizontal">
+              <div className="contact-line"><i>☎</i><div><b>Contacto</b><span>+351 912 345 678</span></div></div>
+              <div className="contact-line"><i>⌖</i><div><b>Localização</b><span>Rua Exemplo, 123 · Porto</span></div></div>
+              <div className="contact-line"><i>◷</i><div><b>Horário</b><span>Terça a sábado · 09:30–19:00</span></div></div>
             </div>
-          ) : (
-            <>
-              <ol className="booking-progress" aria-label="Progresso da marcação">
-                {([
-                  [1, "Data e hora"],
-                  [2, "Informações"],
-                  [3, "Confirmação"],
-                ] as const).map(([number, label]) => (
-                  <li className={step === number ? "active" : step > number ? "complete" : ""} key={number}>
-                    <button
-                      type="button"
-                      disabled={number > step}
-                      aria-current={step === number ? "step" : undefined}
-                      onClick={() => number < step && goToStep(number)}
-                    >
-                      <span>{step > number ? "✓" : number}</span>
-                      <small>{label}</small>
-                    </button>
-                  </li>
-                ))}
-              </ol>
+          </div>
 
-              <div className="booking-step" key={step}>
-                {step === 1 && (
-                  <>
-                    <header className="booking-step-heading">
-                      <span className="booking-step-number">Passo 1 de 3</span>
-                      <h3 ref={stepHeadingRef} tabIndex={-1}>Quando gostaria de vir?</h3>
-                      <p>Escolha primeiro o dia e, depois, um dos horários disponíveis.</p>
-                    </header>
-                    <div className="booking-calendar">
-                      <div className="booking-calendar-toolbar">
-                        <button
-                          type="button"
-                          aria-label="Mês anterior"
-                          disabled={isCurrentMonth(calendarMonth)}
-                          onClick={() => setCalendarMonth(addMonths(calendarMonth, -1))}
-                        >‹</button>
-                        <strong>{monthLabel(calendarMonth)}</strong>
-                        <button type="button" aria-label="Mês seguinte" onClick={() => setCalendarMonth(addMonths(calendarMonth, 1))}>›</button>
-                      </div>
-                      <div className="booking-weekdays" aria-hidden="true">
-                        {["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"].map((day) => <span key={day}>{day}</span>)}
-                      </div>
-                      <div className="booking-month-grid" role="grid" aria-label={monthLabel(calendarMonth)}>
-                        {calendarDays.map((day, index) => day ? (
-                          <button
-                            type="button"
-                            role="gridcell"
-                            key={day}
-                            disabled={day < minDate}
-                            aria-label={formatPublicDate(day)}
-                            aria-pressed={form.date === day}
-                            className={form.date === day ? "selected" : day === minDate ? "today" : ""}
-                            onClick={() => chooseDate(day)}
-                          >
-                            {Number(day.slice(-2))}
-                          </button>
-                        ) : <span role="gridcell" key={`empty-${index}`} />)}
-                      </div>
-                    </div>
-                    <fieldset className="booking-times" disabled={!form.date || availabilityLoading}>
-                      <legend>{form.date ? `Horários para ${formatPublicDate(form.date)}` : "Selecione um dia para ver os horários"}</legend>
-                      <div className="time-chips">
-                        {availableTimes.map((time) => (
-                          <button
-                            className={`time-chip ${form.time === time ? "selected" : ""}`}
-                            key={time}
-                            type="button"
-                            aria-pressed={form.time === time}
-                            disabled={!form.date || unavailable.includes(time)}
-                            onClick={() => update("time", time)}
-                          >
-                            {time}
-                          </button>
-                        ))}
-                      </div>
-                      {availabilityLoading && <small className="availability-note">A confirmar disponibilidade…</small>}
-                    </fieldset>
-                  </>
-                )}
-
-                {step === 2 && (
-                  <>
-                    <header className="booking-step-heading">
-                      <span className="booking-step-number">Passo 2 de 3</span>
-                      <h3 ref={stepHeadingRef} tabIndex={-1}>Serviço e informações</h3>
-                      <p>Escolha o cuidado pretendido e deixe os seus contactos.</p>
-                    </header>
-                    <BookingMomentSummary date={form.date} time={form.time} onEdit={() => goToStep(1)} />
-                    <fieldset className="booking-service-fieldset">
-                      <legend>Escolha o serviço</legend>
-                      <div className="booking-service-options">
-                        {displayServices.map((service) => (
-                          <label className={form.serviceId === service.id ? "selected" : ""} key={service.id}>
-                            <input
-                              type="radio"
-                              name="booking-service"
-                              value={service.id}
-                              checked={form.serviceId === service.id}
-                              onChange={() => void chooseBookingService(service.id)}
-                            />
-                            <span aria-hidden="true">{service.icon}</span>
-                            <strong>{service.name}</strong>
-                            <small>{service.duration} min · {service.price}</small>
-                          </label>
-                        ))}
-                      </div>
-                    </fieldset>
-                    <div className="form-grid booking-details">
-                      <div className="field"><label htmlFor="name">Nome completo</label><input id="name" autoComplete="name" value={form.name} onChange={(event) => update("name", event.target.value)} required /></div>
-                      <div className="field"><label htmlFor="phone">Telemóvel</label><input id="phone" type="tel" inputMode="tel" autoComplete="tel" value={form.phone} onChange={(event) => update("phone", event.target.value)} required /></div>
-                      <div className="field full"><label htmlFor="email">Email (opcional)</label><input id="email" type="email" autoComplete="email" value={form.email} onChange={(event) => update("email", event.target.value)} /></div>
-                      <div className="field full"><label htmlFor="notes">Observações (opcional)</label><textarea id="notes" rows={3} value={form.notes} onChange={(event) => update("notes", event.target.value)} placeholder="Conte-nos o que pretende…" /></div>
-                    </div>
-                  </>
-                )}
-
-                {step === 3 && (
-                  <>
-                    <header className="booking-step-heading">
-                      <span className="booking-step-number">Passo 3 de 3</span>
-                      <h3 ref={stepHeadingRef} tabIndex={-1}>Confirme todos os detalhes</h3>
-                      <p>O pedido só será enviado depois da sua confirmação.</p>
-                    </header>
-                    <div className="booking-review">
-                      <ReviewGroup title="Momento" onEdit={() => goToStep(1)}>
-                        <ReviewItem label="Data" value={formatPublicDate(form.date)} />
-                        <ReviewItem label="Hora" value={form.time} />
-                      </ReviewGroup>
-                      <ReviewGroup title="Serviço" onEdit={() => goToStep(2)}>
-                        <ReviewItem label="Serviço" value={selectedService?.name ?? "—"} />
-                        <ReviewItem label="Duração" value={selectedService ? `${selectedService.duration} min` : "—"} />
-                        {selectedService?.price && <ReviewItem label="Preço" value={selectedService.price} />}
-                      </ReviewGroup>
-                      <ReviewGroup title="Os seus dados" onEdit={() => goToStep(2)}>
-                        <ReviewItem label="Nome" value={form.name} />
-                        <ReviewItem label="Telemóvel" value={form.phone} />
-                        <ReviewItem label="Email" value={form.email || "Não indicado"} />
-                        <ReviewItem label="Observações" value={form.notes || "Sem observações"} />
-                      </ReviewGroup>
-                    </div>
-                  </>
-                )}
+          <form className="booking-card booking-wizard wide-wizard" ref={bookingFormRef} onSubmit={submit} noValidate={step === 3}>
+            {submitted ? (
+              <div className="booking-success" role="status" tabIndex={-1}>
+                <span aria-hidden="true" className="success-icon-anim">✓</span>
+                <p className="eyebrow">Pedido recebido</p>
+                <h3>Obrigada, {form.name.split(" ")[0]}.</h3>
+                <p>O seu pedido para {formatPublicDate(form.date)}, às {form.time}, ficou registado. A Paula entrará em contacto para confirmar.</p>
+                <div className="booking-success-detail">
+                  <strong>{selectedService?.name}</strong>
+                  <span>{selectedService?.duration} min{selectedService?.price ? ` · ${selectedService.price}` : ""}</span>
+                </div>
               </div>
+            ) : (
+              <>
+                <ol className="booking-progress" aria-label="Progresso da marcação">
+                  {([
+                    [1, "Data e hora"],
+                    [2, "Informações"],
+                    [3, "Confirmação"],
+                  ] as const).map(([number, label]) => (
+                    <li className={step === number ? "active" : step > number ? "complete" : ""} key={number}>
+                      <button
+                        type="button"
+                        disabled={number > step}
+                        aria-current={step === number ? "step" : undefined}
+                        onClick={() => number < step && goToStep(number)}
+                      >
+                        <span>{step > number ? "✓" : number}</span>
+                        <small>{label}</small>
+                      </button>
+                    </li>
+                  ))}
+                </ol>
 
-              {message.text && <p className={`form-message ${message.type}`} role="alert">{message.text}</p>}
-              <footer className="booking-actions">
-                {step > 1 && <button className="btn btn-secondary" type="button" disabled={sending} onClick={() => goToStep(step === 3 ? 2 : 1)}>Voltar</button>}
-                {step === 1 && <button className="btn btn-primary" type="button" disabled={!form.date || !form.time || availabilityLoading} onClick={() => goToStep(2)}>Continuar</button>}
-                {step === 2 && <button className="btn btn-primary" type="button" disabled={availabilityLoading} onClick={() => void continueToConfirmation()}>{availabilityLoading ? "A validar…" : "Continuar"}</button>}
-                {step === 3 && <button className="btn btn-primary" type="submit" disabled={sending}>{sending ? "A enviar…" : "Enviar pedido de marcação"}</button>}
-              </footer>
-              {step === 3 && <p className="form-note">O pedido será revisto e confirmado por telefone ou email.</p>}
-            </>
-          )}
-        </form>
-      </div></section>
+                <div className="booking-step" key={step}>
+                  {step === 1 && (
+                    <div className="booking-step-split">
+                      <div className="booking-pane left-pane">
+                        <header className="booking-step-heading">
+                          <span className="booking-step-number">Passo 1 de 3</span>
+                          <h3 ref={stepHeadingRef} tabIndex={-1}>Quando gostaria de vir?</h3>
+                          <p>Selecione o dia desejado no calendário.</p>
+                        </header>
+
+                        <div className="booking-calendar">
+                          <div className="booking-calendar-toolbar">
+                            <button
+                              type="button"
+                              aria-label="Mês anterior"
+                              disabled={isCurrentMonth(calendarMonth)}
+                              onClick={() => setCalendarMonth(addMonths(calendarMonth, -1))}
+                            >‹</button>
+                            <strong>{monthLabel(calendarMonth)}</strong>
+                            <button type="button" aria-label="Mês seguinte" onClick={() => setCalendarMonth(addMonths(calendarMonth, 1))}>›</button>
+                          </div>
+                          <div className="booking-weekdays" aria-hidden="true">
+                            {["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"].map((day) => <span key={day}>{day}</span>)}
+                          </div>
+                          <div className="booking-month-grid" role="grid" aria-label={monthLabel(calendarMonth)}>
+                            {calendarDays.map((day, index) => day ? (
+                              <button
+                                type="button"
+                                role="gridcell"
+                                key={day}
+                                disabled={day < minDate}
+                                aria-label={formatPublicDate(day)}
+                                aria-pressed={form.date === day}
+                                className={form.date === day ? "selected" : day === minDate ? "today" : ""}
+                                onClick={() => chooseDate(day)}
+                              >
+                                {Number(day.slice(-2))}
+                              </button>
+                            ) : <span role="gridcell" key={`empty-${index}`} />)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="booking-pane right-pane">
+                        <fieldset className="booking-times" disabled={!form.date || availabilityLoading}>
+                          <legend className="times-legend">{form.date ? `Horários para ${formatPublicDate(form.date)}` : "Selecione um dia para ver os horários"}</legend>
+                          <div className="time-chips">
+                            {availableTimes.map((time) => (
+                              <button
+                                className={`time-chip ${form.time === time ? "selected" : ""}`}
+                                key={time}
+                                type="button"
+                                aria-pressed={form.time === time}
+                                disabled={!form.date || unavailable.includes(time)}
+                                onClick={() => update("time", time)}
+                              >
+                                {time}
+                              </button>
+                            ))}
+                          </div>
+                          {availabilityLoading && <small className="availability-note pulse-anim">A confirmar disponibilidade…</small>}
+                        </fieldset>
+                      </div>
+                    </div>
+                  )}
+
+                  {step === 2 && (
+                    <div className="booking-step-split">
+                      <div className="booking-pane left-pane">
+                        <header className="booking-step-heading">
+                          <span className="booking-step-number">Passo 2 de 3</span>
+                          <h3 ref={stepHeadingRef} tabIndex={-1}>O seu serviço</h3>
+                          <p>Escolha o cuidado pretendido para esta marcação.</p>
+                        </header>
+                        <BookingMomentSummary date={form.date} time={form.time} onEdit={() => goToStep(1)} />
+                        <fieldset className="booking-service-fieldset">
+                          <div className="booking-service-options list-layout">
+                            {displayServices.map((service) => (
+                              <label className={form.serviceId === service.id ? "selected" : ""} key={service.id}>
+                                <input
+                                  type="radio"
+                                  name="booking-service"
+                                  value={service.id}
+                                  checked={form.serviceId === service.id}
+                                  onChange={() => void chooseBookingService(service.id)}
+                                />
+                                <span aria-hidden="true">{service.icon}</span>
+                                <div className="service-info-wrap">
+                                  <strong>{service.name}</strong>
+                                  <small>{service.duration} min · A partir de {service.price}</small>
+                                </div>
+                              </label>
+                            ))}
+                          </div>
+                        </fieldset>
+                      </div>
+
+                      <div className="booking-pane right-pane">
+                        <header className="booking-step-heading desktop-hidden">
+                          <h3>Os seus dados</h3>
+                        </header>
+                        <div className="form-grid booking-details form-elegant">
+                          <div className="field full"><label htmlFor="name">Nome completo</label><input id="name" autoComplete="name" value={form.name} onChange={(event) => update("name", event.target.value)} required /></div>
+                          <div className="field full"><label htmlFor="phone">Telemóvel</label><input id="phone" type="tel" inputMode="tel" autoComplete="tel" value={form.phone} onChange={(event) => update("phone", event.target.value)} required /></div>
+                          <div className="field full"><label htmlFor="email">Email (opcional)</label><input id="email" type="email" autoComplete="email" value={form.email} onChange={(event) => update("email", event.target.value)} /></div>
+                          <div className="field full"><label htmlFor="notes">Observações (opcional)</label><textarea id="notes" rows={4} value={form.notes} onChange={(event) => update("notes", event.target.value)} placeholder="Indique detalhes ou requisitos específicos..." /></div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {step === 3 && (
+                    <div className="booking-step-centered">
+                      <header className="booking-step-heading text-center">
+                        <span className="booking-step-number">Passo 3 de 3</span>
+                        <h3 ref={stepHeadingRef} tabIndex={-1}>Confirme os detalhes</h3>
+                        <p>O pedido só será enviado depois da sua confirmação final.</p>
+                      </header>
+                      <div className="booking-review elegant-review">
+                        <ReviewGroup title="Momento" onEdit={() => goToStep(1)}>
+                          <ReviewItem label="Data" value={formatPublicDate(form.date)} />
+                          <ReviewItem label="Hora" value={form.time} />
+                        </ReviewGroup>
+                        <ReviewGroup title="Serviço" onEdit={() => goToStep(2)}>
+                          <ReviewItem label="Serviço" value={selectedService?.name ?? "—"} />
+                          <ReviewItem label="Duração" value={selectedService ? `${selectedService.duration} min` : "—"} />
+                        </ReviewGroup>
+                        <ReviewGroup title="Os seus dados" onEdit={() => goToStep(2)}>
+                          <ReviewItem label="Nome" value={form.name} />
+                          <ReviewItem label="Telemóvel" value={form.phone} />
+                          <ReviewItem label="Email" value={form.email || "Não indicado"} />
+                          <ReviewItem label="Observações" value={form.notes || "Sem observações"} />
+                        </ReviewGroup>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {message.text && <p className={`form-message alert-anim ${message.type}`} role="alert">{message.text}</p>}
+
+                <footer className="booking-actions elegant-footer">
+                  {step > 1 && <button className="btn btn-secondary" type="button" disabled={sending} onClick={() => goToStep(step === 3 ? 2 : 1)}>Voltar</button>}
+                  {step === 1 && <button className="btn btn-primary" type="button" disabled={!form.date || !form.time || availabilityLoading} onClick={() => goToStep(2)}>Continuar para Serviços</button>}
+                  {step === 2 && <button className="btn btn-primary" type="button" disabled={availabilityLoading} onClick={() => void continueToConfirmation()}>{availabilityLoading ? "A validar…" : "Rever Pedido"}</button>}
+                  {step === 3 && <button className="btn btn-primary btn-large" type="submit" disabled={sending}>{sending ? "A enviar…" : "Confirmar Marcação"}</button>}
+                </footer>
+                {step === 3 && <p className="form-note">O pedido será revisto e confirmado por telefone ou email.</p>}
+              </>
+            )}
+          </form>
+        </div>
+      </section>
     </main>
 
+    {/* O RESTO MANTÉM-SE IGUAL (cta-band e footer) */}
     <section className="cta-band"><div className="shell cta-inner"><h2>Pronta para cuidar de si?</h2><p>Marque o seu momento de beleza e deixe a Paula cuidar de cada detalhe com atenção, técnica e delicadeza.</p><a className="btn btn-primary" href="#marcar">Marcar agora</a></div></section>
     <footer className="site-footer"><div className="shell"><div className="footer-grid">
       <div><h3 className="footer-brand">Paula Peixoto</h3><p>Um espaço dedicado ao seu bem-estar, onde a arte do cabeleireiro encontra a tranquilidade do cuidado pessoal.</p></div>

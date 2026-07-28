@@ -1,0 +1,10 @@
+# Seguro por omissão: não existe qualquer chamada externa.
+EMAIL_ENABLED=false
+EMAIL_PROVIDER=disabled
+
+# Preencher apenas quando existir uma conta Resend e um domínio verificado.
+RESEND_API_KEY=
+EMAIL_FROM=Paula Peixoto <marcacoes@example.com>
+PAULA_NOTIFICATION_EMAIL=
+APP_URL=http://localhost:3000
+RESEND_WEBHOOK_SECRET=
