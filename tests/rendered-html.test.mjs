@@ -114,6 +114,16 @@ test("autenticação administrativa e rotas principais", async (t) => {
       }
     });
 
+    await t.test("marcação pública começa apenas por data e hora", async () => {
+      const response = await fetchApp("/");
+      const html = await response.text();
+      assert.equal(response.status, 200);
+      assert.match(html, /Data e hora/);
+      assert.match(html, /Quando gostaria de vir/);
+      assert.doesNotMatch(html, /Nome completo/);
+      assert.doesNotMatch(html, /Enviar pedido de marcação/);
+    });
+
     await t.test("acesso a /admin sem sessão redireciona", async () => {
       const response = await fetchApp("/admin", { redirect: "manual" });
       assert.ok([302, 303, 307, 308].includes(response.status));
@@ -484,6 +494,25 @@ test("autenticação administrativa e rotas principais", async (t) => {
       const availability = await fetchApp(`/api/availability?date=${futureDate}`);
       assert.equal(availability.status, 200);
       assert.ok((await availability.json()).unavailable.includes("09:30"));
+
+      const durationAware = await fetchApp(
+        `/api/availability?date=${futureDate}&serviceId=coloracao`,
+      );
+      assert.equal(durationAware.status, 200);
+      assert.ok((await durationAware.json()).unavailable.includes("10:00"));
+
+      const overlap = await fetchApp("/api/appointments", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": "10.0.0.9" },
+        body: JSON.stringify({
+          serviceId: "brushing",
+          date: futureDate,
+          time: "10:00",
+          name: "Cliente Sobreposição",
+          phone: "910000001",
+        }),
+      });
+      assert.equal(overlap.status, 409);
     });
   } finally {
     await mf.dispose();

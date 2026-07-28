@@ -42,10 +42,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Preencha os dados obrigatórios da marcação." }, { status: 400 });
   if (body.date < new Date().toISOString().slice(0, 10))
     return NextResponse.json({ error: "Escolha uma data futura." }, { status: 400 });
-  const existing = await getDb().select({ id: appointments.id }).from(appointments).where(and(
-    eq(appointments.appointmentDate, body.date), eq(appointments.appointmentTime, body.time), ne(appointments.status, "cancelada")
-  )).limit(1);
-  if (existing.length) return NextResponse.json({ error: "Esse horário acabou de ficar indisponível. Escolha outro." }, { status: 409 });
+  const existing = await getDb().select({
+    time: appointments.appointmentTime,
+    duration: appointments.durationMinutes,
+  }).from(appointments).where(and(
+    eq(appointments.appointmentDate, body.date), ne(appointments.status, "cancelada")
+  ));
+  const requestedStart = minutes(body.time);
+  const requestedEnd = requestedStart + service.durationMinutes;
+  const hasConflict = existing.some((item) => {
+    const existingStart = minutes(item.time);
+    return requestedStart < existingStart + item.duration && requestedEnd > existingStart;
+  });
+  if (hasConflict) return NextResponse.json({ error: "Esse horário acabou de ficar indisponível. Escolha outro." }, { status: 409 });
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
   const [knownCustomer] = await getDb().select().from(customers)
@@ -68,4 +77,9 @@ export async function POST(request: NextRequest) {
     email: email || null, notes: asLimitedString(body.notes, 1000) || null,
     status: "pendente", source: "website", createdAt: now, updatedAt: now });
   return NextResponse.json({ ok: true, id }, { status: 201 });
+}
+
+function minutes(time: string) {
+  const [hours, mins] = time.split(":").map(Number);
+  return hours * 60 + mins;
 }
