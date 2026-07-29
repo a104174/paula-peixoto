@@ -141,7 +141,10 @@ test("autenticação administrativa e rotas principais", async (t) => {
         readFile("app/public-site.tsx", "utf8"),
         import("../lib/public-scroll.ts"),
       ]);
-      assert.doesNotMatch(css, /scroll-behavior|scroll-padding|scroll-margin/);
+      assert.doesNotMatch(
+        css,
+        /(?:^|[;{]\s*)(?:scroll-behavior|scroll-padding(?:-[a-z]+)?|scroll-margin(?:-[a-z]+)?)\s*:/m,
+      );
       assert.match(publicSite, /document\.scrollingElement/);
       assert.equal(scrollUtilities.LANDING_SCROLL_DURATION_MS, 720);
       assert.match(publicSite, /easeInOutCubic\(progress\)/);
@@ -233,9 +236,55 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(css, /\.site-header a:focus-visible,.site-header button:focus-visible/);
       assert.match(css, /@media\(max-width:1120px\)/);
       assert.match(css, /@media\(max-width:900px\)/);
-      assert.match(css, /@media\(max-width:390px\)/);
+      assert.match(css, /@media\(max-width:480px\)/);
       assert.match(css, /\.site-header\.menu-open \.mobile-navigation/);
       assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*\.site-header/);
+    });
+
+    await t.test("landing pública mantém contrato mobile fluido entre 320 e 768 px", async () => {
+      const [publicSite, css] = await Promise.all([
+        readFile("app/public-site.tsx", "utf8"),
+        readFile("app/globals.css", "utf8"),
+      ]);
+      const responsiveAudit = css.slice(
+        css.indexOf("/* Public landing responsive audit */"),
+        css.indexOf(".email-preview-page"),
+      );
+
+      for (const width of [320, 360, 375, 390, 412, 430, 768]) {
+        const gutter = Math.min(20, Math.max(12, width * 0.04));
+        assert.ok(width - (2 * gutter) > 0, `${width}px mantém largura útil positiva`);
+        assert.ok(width - (2 * gutter) <= width, `${width}px não excede o viewport`);
+      }
+
+      for (const section of [
+        "hero",
+        "services",
+        "about",
+        "gallery",
+        "booking",
+        "cta-band",
+        "site-footer",
+      ]) {
+        assert.match(responsiveAudit, new RegExp(`\\.public-site \\.${section.replace("-", "\\-")}`));
+      }
+
+      assert.match(responsiveAudit, /--public-mobile-gutter:clamp\(12px,4vw,20px\)/);
+      assert.match(responsiveAudit, /\.public-site\{max-width:100%;overflow-x:clip\}/);
+      assert.match(responsiveAudit, /\.public-site \.hero-grid\{[\s\S]*grid-template-columns:minmax\(0,1fr\)/);
+      assert.match(responsiveAudit, /\.public-site \.service-grid\{grid-template-columns:minmax\(0,1fr\)/);
+      assert.match(responsiveAudit, /\.public-site \.about-grid\{[\s\S]*grid-template-columns:minmax\(0,1fr\)/);
+      assert.match(responsiveAudit, /\.public-site \.gallery-grid\{[\s\S]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+      assert.match(responsiveAudit, /@media\(max-width:480px\)\{[\s\S]*\.public-site \.gallery-grid\{grid-template-columns:minmax\(0,1fr\)/);
+      assert.match(responsiveAudit, /\.public-site \.booking-calendar-panel\{[\s\S]*padding-inline:0/);
+      assert.match(responsiveAudit, /\.public-site \.booking-month-grid button\{min-width:0;min-height:44px\}/);
+      assert.match(responsiveAudit, /\.public-site \.nav-book,[\s\S]*min-height:44px/);
+      assert.match(responsiveAudit, /\.public-site \.form-elegant \.field textarea\{font-size:16px\}/);
+      assert.match(responsiveAudit, /\.public-site \.booking-wizard:focus-within \.booking-actions\{position:relative\}/);
+      assert.match(responsiveAudit, /safe-area-inset-bottom/);
+      assert.match(responsiveAudit, /\.public-site \.footer-grid\{grid-template-columns:minmax\(0,1fr\)/);
+      assert.match(responsiveAudit, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*\.public-site \.gallery-item img\{transition:none!important\}/);
+      assert.match(publicSite, /booking-choice-panel booking-calendar-panel/);
     });
 
     await t.test("marcação pública começa apenas por data e hora", async () => {

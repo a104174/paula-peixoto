@@ -598,7 +598,7 @@ export function PublicSite() {
 
                   {step === 1 && (
                     <div className="booking-content-grid">
-                      <section className="booking-pane booking-choice-panel" aria-labelledby="calendar-title">
+                      <section className="booking-pane booking-choice-panel booking-calendar-panel" aria-labelledby="calendar-title">
                         <div className="booking-pane-heading">
                           <span>Data</span>
                           <h4 id="calendar-title">Escolha o dia</h4>
