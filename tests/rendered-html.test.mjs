@@ -403,7 +403,8 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(css, /\.cta-inner:before\{[\s\S]*border:1px solid/);
       assert.match(css, /\.cta-button:hover i\{[\s\S]*translateX\(3px\)/);
       assert.doesNotMatch(css, /\.cta-band:after/);
-      assert.match(css, /\.site-footer\{[\s\S]*background:linear-gradient\(180deg,#fff 0,#f3f2ef 52px,#e7e6e2 124px/);
+      assert.match(css, /\.cta-band\{[^}]*background:var\(--paper\)/);
+      assert.match(css, /\.site-footer\{padding:112px 0 38px;background:linear-gradient\(180deg,#fff 0,#e7e6e2 96px,#e7e6e2 100%\)/);
       assert.match(css, /@media\(max-width:768px\)\{[\s\S]*\.public-site \.cta-button\{[\s\S]*width:min\(100%,300px\)/);
       assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*\.public-site \.cta-button i\{transition:none!important\}/);
     });
