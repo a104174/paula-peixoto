@@ -41,6 +41,11 @@ type PublicService = {
   icon: string;
 };
 
+type CalendarDayAvailability = {
+  status: "available" | "unavailable" | "full";
+  label: "Disponível" | "Sem disponibilidade" | "Lotação esgotada";
+};
+
 export function PublicSite() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [headerScrolled, setHeaderScrolled] = useState(false);
@@ -54,6 +59,8 @@ export function PublicSite() {
   const [sending, setSending] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
+  const [calendarAvailability, setCalendarAvailability] = useState<Record<string, CalendarDayAvailability>>({});
+  const [calendarAvailabilityLoading, setCalendarAvailabilityLoading] = useState(true);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   const bookingFormRef = useRef<HTMLFormElement>(null);
   const bookingSuccessRef = useRef<HTMLDivElement>(null);
@@ -67,9 +74,37 @@ export function PublicSite() {
       id, name, description, duration, price, icon,
     })),
   );
-  const minDate = new Date().toISOString().slice(0, 10);
+  const minDate = useMemo(() => todayInLisbon(), []);
   const selectedService = displayServices.find((service) => service.id === form.serviceId);
   const calendarDays = useMemo(() => monthDays(calendarMonth), [calendarMonth]);
+  const calendarMonthKey = `${calendarMonth.getFullYear()}-${String(calendarMonth.getMonth() + 1).padStart(2, "0")}`;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    setCalendarAvailability({});
+    setCalendarAvailabilityLoading(true);
+    void fetch(`/api/availability?month=${encodeURIComponent(calendarMonthKey)}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Não foi possível carregar o calendário.");
+        return response.json() as Promise<{ days?: Record<string, CalendarDayAvailability> }>;
+      })
+      .then((data) => {
+        if (active) setCalendarAvailability(data.days ?? {});
+      })
+      .catch(() => {
+        if (active) setCalendarAvailability({});
+      })
+      .finally(() => {
+        if (active) setCalendarAvailabilityLoading(false);
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [calendarMonthKey]);
 
   useEffect(() => {
     if (!form.date) return;
@@ -346,6 +381,7 @@ export function PublicSite() {
     if (bookingSection) scheduleScrollToLandingTarget(bookingSection);
   }
   function chooseDate(date: string) {
+    if (date < minDate || calendarAvailability[date]?.status !== "available") return;
     setForm((current) => ({ ...current, date, time: "" }));
     setUnavailable([]);
     setMessage({ type: "", text: "" });
@@ -660,21 +696,49 @@ export function PublicSite() {
                             {["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"].map((day) => <span key={day}>{day}</span>)}
                           </div>
                           <div className="booking-month-grid" role="grid" aria-label={monthLabel(calendarMonth)}>
-                            {calendarDays.map((day, index) => day ? (
-                              <button
-                                type="button"
-                                role="gridcell"
-                                key={day}
-                                disabled={day < minDate}
-                                aria-label={formatPublicDate(day)}
-                                aria-pressed={form.date === day}
-                                className={form.date === day ? "selected" : day === minDate ? "today" : ""}
-                                onClick={() => chooseDate(day)}
-                              >
-                                {Number(day.slice(-2))}
-                              </button>
-                            ) : <span role="gridcell" key={`empty-${index}`} />)}
+                            {calendarDays.map((day, index) => {
+                              if (!day) return <span role="gridcell" key={`empty-${index}`} />;
+                              const isPast = day < minDate;
+                              const availability = isPast
+                                ? { status: "past", label: "Data passada" } as const
+                                : calendarAvailability[day] ?? {
+                                  status: "loading",
+                                  label: calendarAvailabilityLoading
+                                    ? "A confirmar disponibilidade"
+                                    : "Sem disponibilidade",
+                                } as const;
+                              const disabled = availability.status !== "available";
+                              const selected = form.date === day;
+                              const className = [
+                                `day-${availability.status}`,
+                                selected ? "selected" : "",
+                                day === minDate ? "today" : "",
+                              ].filter(Boolean).join(" ");
+                              return (
+                                <button
+                                  type="button"
+                                  role="gridcell"
+                                  key={day}
+                                  disabled={disabled}
+                                  aria-disabled={disabled}
+                                  aria-label={`${formatPublicDate(day)}. ${availability.label}`}
+                                  aria-pressed={selected}
+                                  className={className}
+                                  title={availability.label}
+                                  onClick={() => {
+                                    if (!disabled) chooseDate(day);
+                                  }}
+                                >
+                                  {Number(day.slice(-2))}
+                                </button>
+                              );
+                            })}
                           </div>
+                          <span className="sr-only" aria-live="polite">
+                            {calendarAvailabilityLoading
+                              ? "A confirmar a disponibilidade dos dias."
+                              : "Disponibilidade dos dias atualizada."}
+                          </span>
                         </div>
                       </section>
 
@@ -820,7 +884,7 @@ export function PublicSite() {
       <div><h3 className="footer-brand">Paula Peixoto</h3><p>Um espaço dedicado ao seu bem-estar, onde a arte do cabeleireiro encontra a tranquilidade do cuidado pessoal.</p></div>
       <div><h4>Navegação</h4><ul><li><a href="#inicio">Início</a></li><li><a href="#servicos">Serviços</a></li><li><a href="#galeria">Galeria</a></li><li><a href="#sobre">Sobre</a></li></ul></div>
       <div><h4>Serviços</h4><ul><li>Corte e brushing</li><li>Coloração e madeixas</li><li>Manicure e unhas</li><li>Pedicure e depilação</li></ul></div>
-      <div><h4>Contactos</h4><ul><li>+351 912 345 678</li><li>Rua Exemplo, 123 · Porto</li><li>Terça a sábado · 09:30–19:00</li><li><a href="/admin">Área de gestão</a></li></ul></div>
+      <div><h4>Contactos</h4><ul><li>+351 912 345 678</li><li>Rua Exemplo, 123 · Porto</li><li>Terças, Quintas e Sábados</li><li><a href="/admin">Área de gestão</a></li></ul></div>
     </div><div className="footer-bottom"><span>© 2026 Paula Peixoto. Todos os direitos reservados.</span><span>Desenvolvido com cuidado por Hélder Cruz</span></div></div></footer>
     <div className="mobile-book"><a className="btn btn-primary" href="#marcar">Marcar agora</a></div>
   </div>;
@@ -879,6 +943,17 @@ function isCurrentMonth(date: Date) {
 
 function monthLabel(date: Date) {
   return new Intl.DateTimeFormat("pt-PT", { month: "long", year: "numeric" }).format(date);
+}
+
+function todayInLisbon() {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Europe/Lisbon",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 function monthDays(date: Date) {

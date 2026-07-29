@@ -371,6 +371,8 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(css, /\.cta-inner\{[\s\S]*radial-gradient[\s\S]*linear-gradient/);
       assert.match(css, /\.cta-inner:before\{[\s\S]*border:1px solid/);
       assert.match(css, /\.cta-button:hover i\{[\s\S]*translateX\(3px\)/);
+      assert.doesNotMatch(css, /\.cta-band:after/);
+      assert.match(css, /\.site-footer\{[\s\S]*background:linear-gradient\(180deg,#fff 0,#f3f2ef 52px,#e7e6e2 124px/);
       assert.match(css, /@media\(max-width:768px\)\{[\s\S]*\.public-site \.cta-button\{[\s\S]*width:min\(100%,300px\)/);
       assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*\.public-site \.cta-button i\{transition:none!important\}/);
     });
@@ -410,6 +412,13 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(publicSite, /Voltar ao início/);
       assert.match(publicSite, /href="tel:\+351912345678"/);
       assert.match(publicSite, /\$\{selectedService\.duration\} min · \$\{selectedService\.price\}/);
+      assert.match(publicSite, /\/api\/availability\?month=/);
+      assert.match(publicSite, /disabled=\{disabled\}/);
+      assert.match(publicSite, /aria-disabled=\{disabled\}/);
+      assert.match(publicSite, /Data passada/);
+      assert.match(publicSite, /Sem disponibilidade/);
+      assert.match(publicSite, /Lotação esgotada/);
+      assert.match(publicSite, /calendarAvailability\[date\]\?\.status !== "available"/);
 
       assert.match(css, /\.public-site \.booking-wizard\.wide-wizard\{/);
       assert.match(css, /min-height:0/);
@@ -420,6 +429,12 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(css, /@media\(max-width:900px\)\{[\s\S]*\.public-site \.booking-content-grid\{grid-template-columns:1fr/);
       assert.match(css, /position:sticky;[\s\S]*bottom:0/);
       assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
+      assert.match(css, /\.booking-month-grid button:hover:not\(:disabled\)/);
+      assert.match(css, /\.booking-month-grid button:disabled\s*\{[\s\S]*cursor:\s*not-allowed/);
+      assert.match(css, /\.booking-month-grid button\.day-past:disabled/);
+      assert.match(css, /\.booking-month-grid button\.day-unavailable:disabled/);
+      assert.match(css, /\.booking-month-grid button\.day-full:disabled/);
+      assert.doesNotMatch(publicSite, /booking-calendar-legend/);
       assert.doesNotMatch(css, /\.public-site \.booking-wizard\.wide-wizard\{[^}]*min-height:600px/);
     });
 
@@ -930,6 +945,41 @@ test("autenticação administrativa e rotas principais", async (t) => {
       )).json();
       assert.equal(closed.reason, "closed");
       assert.deepEqual(closed.slots, []);
+
+      const calendarResponse = await fetchApp(`/api/availability?month=${date.slice(0, 7)}`);
+      const calendar = await calendarResponse.json();
+      assert.equal(calendarResponse.status, 200, JSON.stringify(calendar));
+      assert.deepEqual(calendar.days[date], { status: "available", label: "Disponível" });
+
+      const closedCalendarResponse = await fetchApp(`/api/availability?month=${closedDate.slice(0, 7)}`);
+      const closedCalendar = await closedCalendarResponse.json();
+      assert.equal(closedCalendarResponse.status, 200, JSON.stringify(closedCalendar));
+      assert.deepEqual(
+        closedCalendar.days[closedDate],
+        { status: "unavailable", label: "Sem disponibilidade" },
+      );
+
+      const fullDate = new Date(Date.parse(`${date}T12:00:00Z`) + 14 * 86_400_000)
+        .toISOString().slice(0, 10);
+      const fullTimes = [
+        "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
+        "14:00", "14:30", "15:00", "15:30", "16:00", "16:30",
+      ];
+      await sql(`INSERT INTO appointments
+        (id,service_id,service_name,duration_minutes,appointment_date,appointment_time,
+         customer_name,phone,status,source,created_at,updated_at)
+        VALUES ${fullTimes.map((time, index) => `(
+          'calendar-full-${index}','brushing','Brushing',30,'${fullDate}','${time}',
+          'Cliente ${index}','939999999','confirmada','admin','${now}','${now}'
+        )`).join(",")};`);
+      const fullCalendarResponse = await fetchApp(`/api/availability?month=${fullDate.slice(0, 7)}`);
+      const fullCalendar = await fullCalendarResponse.json();
+      assert.equal(fullCalendarResponse.status, 200, JSON.stringify(fullCalendar));
+      assert.deepEqual(
+        fullCalendar.days[fullDate],
+        { status: "full", label: "Lotação esgotada" },
+      );
+      await sql("DELETE FROM appointments WHERE id LIKE 'calendar-full-%';");
     });
 
     await t.test("intervalos de férias bloqueiam integralmente um dia", async () => {
