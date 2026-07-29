@@ -135,6 +135,20 @@ test("autenticação administrativa e rotas principais", async (t) => {
       }
     });
 
+    await t.test("scroll suave fica limitado ao website público e respeita movimento reduzido", async () => {
+      const [css, publicSite] = await Promise.all([
+        readFile("app/globals.css", "utf8"),
+        readFile("app/public-site.tsx", "utf8"),
+      ]);
+      assert.match(css, /html:has\(\.public-site\)\{scroll-behavior:smooth;scroll-padding-top:98px\}/);
+      assert.match(css, /\.public-site \[id\]\{scroll-margin-top:98px\}/);
+      assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{html:has\(\.public-site\)\{scroll-behavior:auto\}\}/);
+      assert.doesNotMatch(css, /(?:^|})html\{scroll-behavior:smooth\}/);
+      assert.match(publicSite, /className="public-site"/);
+      assert.match(publicSite, /matchMedia\("\(prefers-reduced-motion: reduce\)"\)/);
+      assert.match(publicSite, /behavior: prefersReducedMotion \? "auto" : "smooth"/);
+    });
+
     await t.test("marcação pública começa apenas por data e hora", async () => {
       const response = await fetchApp("/");
       const html = await response.text();

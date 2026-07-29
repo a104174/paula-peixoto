@@ -97,7 +97,10 @@ export function PublicSite() {
   }
   function chooseService(id: string) {
     update("serviceId", id);
-    document.querySelector("#marcar")?.scrollIntoView({ behavior: "smooth" });
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.querySelector("#marcar")?.scrollIntoView({
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+    });
   }
   function chooseDate(date: string) {
     setForm((current) => ({ ...current, date, time: "" }));
@@ -174,7 +177,7 @@ export function PublicSite() {
     } finally { setSending(false); }
   }
 
-  return <>
+  return <div className="public-site">
     <header className="site-header">
       <div className="shell nav">
         <a className="brand" href="#inicio">Paula Peixoto</a>
@@ -433,7 +436,7 @@ export function PublicSite() {
       <div><h4>Contactos</h4><ul><li>+351 912 345 678</li><li>Rua Exemplo, 123 · Porto</li><li>Terça a sábado · 09:30–19:00</li><li><a href="/admin">Área de gestão</a></li></ul></div>
     </div><div className="footer-bottom"><span>© 2026 Paula Peixoto. Todos os direitos reservados.</span><span>Desenvolvido com cuidado por Hélder Cruz</span></div></div></footer>
     <div className="mobile-book"><a className="btn btn-primary" href="#marcar">Marcar agora</a></div>
-  </>;
+  </div>;
 }
 
 function BookingMomentSummary({ date, time, onEdit }: { date: string; time: string; onEdit: () => void }) {
