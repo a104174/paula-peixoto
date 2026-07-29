@@ -52,36 +52,23 @@
 .site-header.is-scrolled .nav{min-height:60px;padding-inline:10px}
 .brand{
   min-width:0;
+  margin-left:15px;
   justify-self:start;
   display:inline-flex;
   align-items:center;
   gap:11px;
   color:var(--brown)
 }
-.brand-monogram{
-  width:42px;
-  height:42px;
-  border:1px solid rgba(125,86,45,.4);
-  border-radius:50%;
-  display:grid;
+.brand-logo{
+  display:block;
   flex:0 0 auto;
-  place-items:center;
-  background:rgba(255,255,255,.36);
-  font-family:var(--font-display),serif;
-  font-size:.83rem;
-  font-weight:750;
-  letter-spacing:-.08em;
-  transition:width .3s ease,height .3s ease,background .25s ease
+  object-fit:contain;
+  object-position:left center;
+  transition:width .3s cubic-bezier(.22,1,.36,1)
 }
-.site-header.is-scrolled .brand-monogram{width:36px;height:36px;background:rgba(255,255,255,.7)}
-.brand-name{
-  overflow:hidden;
-  font-family:var(--font-display),serif;
-  font-size:1.18rem;
-  font-weight:700;
-  text-overflow:ellipsis;
-  white-space:nowrap
-}
+.brand-logo-full{width:clamp(152px,12vw,100px);height:auto}
+.brand-logo-symbol{width:40px;height:auto;display:none}
+.site-header.is-scrolled .brand-logo-full{width:110px}
 .nav-links{
   justify-self:center;
   padding:4px;
@@ -133,7 +120,7 @@
   border-radius:50%;
   display:none;
   place-content:center;
-  gap:6px;
+  gap:5px;
   background:rgba(255,255,255,.5);
   color:var(--brown);
   transition:background .18s ease,border-color .18s ease,transform .18s ease
@@ -141,15 +128,16 @@
 .mobile-menu:hover{border-color:var(--brown);background:var(--champagne)}
 .mobile-menu:active{transform:scale(.94)}
 .mobile-menu>span{
-  width:17px;
+  width:18px;
   height:1.5px;
   border-radius:99px;
   display:block;
   background:currentColor;
-  transition:transform .22s ease
+  transition:opacity .16s ease,transform .22s ease
 }
-.site-header.menu-open .mobile-menu>span:first-child{transform:translateY(3.75px) rotate(45deg)}
-.site-header.menu-open .mobile-menu>span:last-child{transform:translateY(-3.75px) rotate(-45deg)}
+.site-header.menu-open .mobile-menu>span:first-child{transform:translateY(6.5px) rotate(45deg)}
+.site-header.menu-open .mobile-menu>span:nth-child(2){opacity:0;transform:scaleX(.35)}
+.site-header.menu-open .mobile-menu>span:last-child{transform:translateY(-6.5px) rotate(-45deg)}
 .mobile-navigation{
   position:absolute;
   top:calc(100% + 9px);
@@ -205,7 +193,6 @@
 }
 @media(max-width:1120px){
   .nav{grid-template-columns:minmax(52px,1fr) auto minmax(150px,1fr)}
-  .brand-name{display:none}
   .nav-links a{padding-inline:10px}
 }
 @media(max-width:900px){
@@ -245,19 +232,11 @@
   }
   .site-header.is-scrolled .nav,
   .site-header.menu-open .nav{min-height:56px;padding-inline:10px}
-  .brand{gap:9px}
-  .brand-name{
-    display:block;
-    max-width:clamp(94px,31vw,138px);
-    color:var(--charcoal);
-    font-size:clamp(.98rem,4.6vw,1.18rem)
-  }
-  .brand-monogram,
-  .site-header.is-scrolled .brand-monogram{
-    width:36px;
-    height:36px;
-    background:rgba(255,255,255,.72)
-  }
+  .brand{margin-left:0}
+  .brand-logo-full{display:none}
+  .brand-logo-symbol{width:40px;height:auto;display:block}
+  .site-header.is-scrolled .brand-logo-symbol,
+  .site-header.menu-open .brand-logo-symbol{width:36px}
   .nav-links{display:none}
   .nav-actions{gap:8px}
   .nav-book{

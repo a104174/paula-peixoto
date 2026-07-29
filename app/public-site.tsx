@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   FormEvent,
   type MouseEvent as ReactMouseEvent,
@@ -427,8 +428,24 @@ export function PublicSite() {
       <div className="public-nav-frame">
         <div className="nav">
           <a className="brand" href="#inicio" aria-label="Paula Peixoto — início" onClick={() => setMenuOpen(false)}>
-            <span className="brand-monogram" aria-hidden="true">PP</span>
-            <span className="brand-name">Paula Peixoto</span>
+            <Image
+              className="brand-logo brand-logo-full"
+              src="/paula-peixoto.png"
+              alt="Paula Peixoto"
+              width={734}
+              height={175}
+              loading="eager"
+              unoptimized
+            />
+            <Image
+              className="brand-logo brand-logo-symbol"
+              src="/pp.png"
+              alt="Símbolo Paula Peixoto"
+              width={510}
+              height={497}
+              loading="eager"
+              unoptimized
+            />
           </a>
           <nav className="nav-links" aria-label="Navegação principal">
             {publicNavigation.map(([id, label]) => (
@@ -456,7 +473,7 @@ export function PublicSite() {
               aria-controls="mobile-navigation"
               onClick={() => setMenuOpen((open) => !open)}
             >
-              <span aria-hidden="true" /><span aria-hidden="true" />
+              <span aria-hidden="true" /><span aria-hidden="true" /><span aria-hidden="true" />
             </button>
           </div>
         </div>

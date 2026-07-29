@@ -192,9 +192,11 @@ test("autenticação administrativa e rotas principais", async (t) => {
     });
 
     await t.test("navbar pública responde a scroll, secções, hash e menu mobile acessível", async () => {
-      const [publicSite, css] = await Promise.all([
+      const [publicSite, css, mobileLogo, desktopLogo] = await Promise.all([
         readFile("app/public-site.tsx", "utf8"),
         readFile("app/globals.css", "utf8"),
+        readFile("public/pp.png"),
+        readFile("public/paula-peixoto.png"),
       ]);
 
       for (const [id, label] of [
@@ -231,6 +233,19 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(publicSite, /className="mobile-navigation-cta"/);
       assert.match(publicSite, /event\.target === event\.currentTarget/);
       assert.match(publicSite, /<\/div>\s*<nav\s+className="mobile-navigation"/);
+      assert.match(publicSite, /src="\/pp\.png"/);
+      assert.match(publicSite, /alt="Símbolo Paula Peixoto"/);
+      assert.match(publicSite, /src="\/paula-peixoto\.png"/);
+      assert.match(publicSite, /alt="Paula Peixoto"/);
+      assert.equal(publicSite.match(/\s+unoptimized/g)?.length, 2);
+      const mobileMenuMarkup = publicSite.match(
+        /<button[\s\S]*?className="mobile-menu"[\s\S]*?<\/button>/,
+      )?.[0] ?? "";
+      assert.equal(mobileMenuMarkup.match(/<span aria-hidden="true" \/>/g)?.length, 3);
+      assert.equal(mobileLogo.readUInt32BE(16), 510);
+      assert.equal(mobileLogo.readUInt32BE(20), 497);
+      assert.equal(desktopLogo.readUInt32BE(16), 734);
+      assert.equal(desktopLogo.readUInt32BE(20), 175);
 
       assert.match(css, /\.public-nav-frame\{[\s\S]*background:transparent/);
       assert.match(css, /\.site-header\.is-scrolled \.public-nav-frame\{[\s\S]*border-radius:999px/);
@@ -248,6 +263,11 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(css, /\.mobile-navigation\{[\s\S]*position:fixed;[\s\S]*inset:0;[\s\S]*min-height:100dvh/);
       assert.match(css, /\.mobile-navigation-primary a\{[\s\S]*font-size:clamp\(1\.8rem,8vw,2\.35rem\)/);
       assert.match(css, /\.mobile-navigation>\.mobile-navigation-cta\{[\s\S]*margin-top:auto/);
+      assert.match(css, /\.brand-logo\{[\s\S]*object-fit:contain/);
+      assert.match(css, /\.brand\{[\s\S]*margin-left:8px/);
+      assert.match(css, /\.brand-logo-full\{width:clamp\(132px,12vw,156px\);height:auto\}/);
+      assert.match(css, /\.brand-logo-symbol\{width:40px;height:auto;display:none\}/);
+      assert.match(css, /\.site-header\.menu-open \.mobile-menu>span:nth-child\(2\)\{opacity:0/);
       assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*\.site-header/);
     });
 
