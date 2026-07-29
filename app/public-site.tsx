@@ -23,6 +23,11 @@ const gallery = [
   ["/portfolio/coloracao.jpg", "Coloração luminosa"], ["/portfolio/nail-art.jpg", "Nail art"],
 ];
 const serviceCardVariants = ["featured", "vertical", "medium", "horizontal", "medium", "medium"] as const;
+const serviceIconPaths = [
+  "/icons/scissors.svg",
+  "/icons/hair-dryer.svg",
+  "/icons/paint-brush-household.svg",
+] as const;
 const serviceVisuals = [
   { src: "/portfolio/bob.jpg", width: 512, height: 318 },
   { src: "/portfolio/balayage.jpg", width: 512, height: 279 },
@@ -49,6 +54,13 @@ type PublicService = {
   price: string;
   icon: string;
 };
+
+function ServiceIcon({ index, fallback }: { index: number; fallback: string }) {
+  const src = serviceIconPaths[index];
+  return src
+    ? <Image className="service-icon-image" src={src} alt="" width={24} height={24} unoptimized />
+    : <>{fallback}</>;
+}
 
 type CalendarDayAvailability = {
   status: "available" | "unavailable" | "full";
@@ -590,7 +602,6 @@ export function PublicSite() {
                 >
                   <div className="service-card-copy">
                     <div className="service-card-kicker">
-                      <span aria-hidden="true">{service.icon}</span>
                       <small>Serviço {String(index + 1).padStart(2, "0")}</small>
                     </div>
                     <h3>{service.name}</h3>
@@ -612,7 +623,6 @@ export function PublicSite() {
                       />
                     ) : (
                       <>
-                        <span className="service-visual-icon">{service.icon}</span>
                         <i /><i /><i />
                       </>
                     )}
@@ -836,7 +846,7 @@ export function PublicSite() {
                           </div>
                         <fieldset className="booking-service-fieldset">
                           <div className="booking-service-options list-layout">
-                            {displayServices.map((service) => (
+                            {displayServices.map((service, index) => (
                               <label className={form.serviceId === service.id ? "selected" : ""} key={service.id}>
                                 <input
                                   type="radio"
@@ -845,7 +855,7 @@ export function PublicSite() {
                                   checked={form.serviceId === service.id}
                                   onChange={() => void chooseBookingService(service.id)}
                                 />
-                                <span aria-hidden="true">{service.icon}</span>
+                                <span aria-hidden="true"><ServiceIcon index={index} fallback={service.icon} /></span>
                                 <div className="service-info-wrap">
                                   <strong>{service.name}</strong>
                                   <small>{service.duration} min · {service.price}</small>
@@ -934,7 +944,7 @@ export function PublicSite() {
       <div><h3 className="footer-brand">Paula Peixoto</h3><p>Um espaço dedicado ao seu bem-estar, onde a arte do cabeleireiro encontra a tranquilidade do cuidado pessoal.</p></div>
       <div><h4>Navegação</h4><ul><li><a href="#inicio">Início</a></li><li><a href="#servicos">Serviços</a></li><li><a href="#galeria">Galeria</a></li><li><a href="#sobre">Sobre</a></li></ul></div>
       <div><h4>Serviços</h4><ul><li>Corte e brushing</li><li>Coloração e madeixas</li><li>Manicure e unhas</li><li>Pedicure e depilação</li></ul></div>
-      <div><h4>Contactos</h4><ul><li>+351 912 345 678</li><li>Rua Exemplo, 123 · Porto</li><li>Terças, Quintas e Sábados</li><li><a href="/admin">Área de gestão</a></li></ul></div>
+      <div><h4>Contactos</h4><ul><li>+351 914 763 032</li><li>Rua das Mimosas · Faria</li><li>Terças, Quintas e Sábados</li><li><a href="/admin">Área de gestão</a></li></ul></div>
     </div><div className="footer-bottom"><span>© 2026 Paula Peixoto. Todos os direitos reservados.</span><span>Desenvolvido com cuidado por Hélder Cruz</span></div></div></footer>
     <div className="mobile-book"><a className="btn btn-primary" href="#marcar">Marcar agora</a></div>
   </div>;

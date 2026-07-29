@@ -365,6 +365,8 @@ test("autenticação administrativa e rotas principais", async (t) => {
       )?.[0] ?? "";
 
       assert.match(publicSite, /const serviceCardVariants = \["featured", "vertical", "medium", "horizontal"/);
+      assert.match(publicSite, /const serviceIconPaths = \[[\s\S]*"\/icons\/scissors\.svg"[\s\S]*"\/icons\/hair-dryer\.svg"[\s\S]*"\/icons\/paint-brush-household\.svg"/);
+      assert.doesNotMatch(servicesMarkup, /ServiceIcon|service-visual-icon/);
       assert.match(servicesMarkup, /displayServices\.map\(\(service, index\)/);
       assert.match(servicesMarkup, /index % serviceCardVariants\.length/);
       assert.match(servicesMarkup, /data-variant=\{variant\}/);
