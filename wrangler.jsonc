@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "paula-peixoto",
+  "account_id": "ad7a4dc50796f9db79306ee66f9a4798",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-07-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": true,
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "paula-peixoto-db",
+      "database_id": "ba9aa676-d8f3-4646-ae2b-2e2e7030bdaa",
+      "migrations_dir": "drizzle"
+    }
+  ],
+
+  "vars": {
+    "EMAIL_ENABLED": "false",
+    "EMAIL_PROVIDER": "disabled"
+  }
+}
