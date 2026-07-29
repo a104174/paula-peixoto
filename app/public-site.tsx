@@ -460,13 +460,18 @@ export function PublicSite() {
             </button>
           </div>
         </div>
-        <nav
-          className="mobile-navigation"
-          id="mobile-navigation"
-          ref={mobileNavigationRef}
-          aria-label="Navegação móvel"
-          aria-hidden={!menuOpen}
-        >
+      </div>
+      <nav
+        className="mobile-navigation"
+        id="mobile-navigation"
+        ref={mobileNavigationRef}
+        aria-label="Navegação móvel"
+        aria-hidden={!menuOpen}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) closeMobileNavigation();
+        }}
+      >
+        <div className="mobile-navigation-primary">
           {publicNavigation.map(([id, label]) => (
             <a
               className={activeSection === id ? "active" : ""}
@@ -476,15 +481,26 @@ export function PublicSite() {
               onClick={closeMobileNavigation}
               key={id}
             >
-              <span>{label}</span><i aria-hidden="true">↗</i>
+              <span>{label}</span>
             </a>
           ))}
-          <div className="mobile-navigation-footer">
-            <span>Paula Peixoto</span>
-            <a href="tel:+351912345678" tabIndex={menuOpen ? 0 : -1}>+351 912 345 678</a>
-          </div>
-        </nav>
-      </div>
+        </div>
+        <div className="mobile-navigation-footer">
+          <span>Paula Peixoto · Porto</span>
+          <a href="tel:+351912345678" tabIndex={menuOpen ? 0 : -1} onClick={closeMobileNavigation}>
+            Telefonar
+          </a>
+          <span>Terça a sábado · 09:30–19:00</span>
+        </div>
+        <a
+          className="mobile-navigation-cta"
+          href="#marcar"
+          tabIndex={menuOpen ? 0 : -1}
+          onClick={closeMobileNavigation}
+        >
+          <span>Marcar agora</span><i aria-hidden="true">→</i>
+        </a>
+      </nav>
     </header>
 
     <main>

@@ -227,6 +227,10 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(publicSite, /window\.matchMedia\("\(min-width: 901px\)"\)/);
       assert.match(publicSite, /tabIndex=\{menuOpen \? 0 : -1\}/);
       assert.match(publicSite, /onClick=\{closeMobileNavigation\}/);
+      assert.match(publicSite, /className="mobile-navigation-primary"/);
+      assert.match(publicSite, /className="mobile-navigation-cta"/);
+      assert.match(publicSite, /event\.target === event\.currentTarget/);
+      assert.match(publicSite, /<\/div>\s*<nav\s+className="mobile-navigation"/);
 
       assert.match(css, /\.public-nav-frame\{[\s\S]*background:transparent/);
       assert.match(css, /\.site-header\.is-scrolled \.public-nav-frame\{[\s\S]*border-radius:999px/);
@@ -238,6 +242,12 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(css, /@media\(max-width:900px\)/);
       assert.match(css, /@media\(max-width:480px\)/);
       assert.match(css, /\.site-header\.menu-open \.mobile-navigation/);
+      assert.match(css, /@media\(max-width:900px\)\{[\s\S]*--mobile-nav-inset:clamp\(16px,5vw,24px\)/);
+      assert.match(css, /\.public-nav-frame\{[\s\S]*z-index:2/);
+      assert.match(css, /\.site-header\.is-scrolled \.public-nav-frame,[\s\S]*border-radius:999px/);
+      assert.match(css, /\.mobile-navigation\{[\s\S]*position:fixed;[\s\S]*inset:0;[\s\S]*min-height:100dvh/);
+      assert.match(css, /\.mobile-navigation-primary a\{[\s\S]*font-size:clamp\(1\.8rem,8vw,2\.35rem\)/);
+      assert.match(css, /\.mobile-navigation>\.mobile-navigation-cta\{[\s\S]*margin-top:auto/);
       assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*\.site-header/);
     });
 
