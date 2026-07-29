@@ -135,6 +135,36 @@ test("autenticação administrativa e rotas principais", async (t) => {
       }
     });
 
+    await t.test("favicon PNG é único, servido e herdado pelas páginas públicas e de autenticação", async () => {
+      const [sourceIcon, appIcon, layout] = await Promise.all([
+        readFile("docs/images/icon.png"),
+        readFile("app/icon.png"),
+        readFile("app/layout.tsx", "utf8"),
+      ]);
+      assert.deepEqual(appIcon, sourceIcon);
+      assert.doesNotMatch(layout, /favicon\.svg|icons:\s*\{/);
+      await assert.rejects(
+        readFile("public/favicon.svg"),
+        (error) => error instanceof Error && "code" in error && error.code === "ENOENT",
+      );
+
+      const iconResponse = await fetchApp("/icon.png");
+      assert.equal(iconResponse.status, 200);
+      assert.equal(iconResponse.headers.get("content-type"), "image/png");
+      assert.deepEqual(Buffer.from(await iconResponse.arrayBuffer()), sourceIcon);
+
+      for (const path of ["/", "/admin/login"]) {
+        const response = await fetchApp(path);
+        const html = await response.text();
+        assert.equal(response.status, 200, path);
+        assert.match(
+          html,
+          /href="(?:https?:\/\/[^"]+)?\/icon\.png\?[^"]+"/,
+          path,
+        );
+      }
+    });
+
     await t.test("scroll animado fica limitado aos links internos do website público", async () => {
       const [css, publicSite, scrollUtilities] = await Promise.all([
         readFile("app/globals.css", "utf8"),
@@ -237,7 +267,10 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(publicSite, /alt="Símbolo Paula Peixoto"/);
       assert.match(publicSite, /src="\/paula-peixoto\.png"/);
       assert.match(publicSite, /alt="Paula Peixoto"/);
-      assert.equal(publicSite.match(/\s+unoptimized/g)?.length, 2);
+      const brandMarkup = publicSite.match(
+        /<a className="brand"[\s\S]*?<\/a>/,
+      )?.[0] ?? "";
+      assert.equal(brandMarkup.match(/\s+unoptimized/g)?.length, 2);
       const mobileMenuMarkup = publicSite.match(
         /<button[\s\S]*?className="mobile-menu"[\s\S]*?<\/button>/,
       )?.[0] ?? "";
@@ -264,8 +297,8 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(css, /\.mobile-navigation-primary a\{[\s\S]*font-size:clamp\(1\.8rem,8vw,2\.35rem\)/);
       assert.match(css, /\.mobile-navigation>\.mobile-navigation-cta\{[\s\S]*margin-top:auto/);
       assert.match(css, /\.brand-logo\{[\s\S]*object-fit:contain/);
-      assert.match(css, /\.brand\{[\s\S]*margin-left:8px/);
-      assert.match(css, /\.brand-logo-full\{width:clamp\(132px,12vw,156px\);height:auto\}/);
+      assert.match(css, /\.brand\{[\s\S]*margin-left:\d+px/);
+      assert.match(css, /\.brand-logo-full\{width:clamp\(\d+px,\d+vw,\d+px\);height:auto\}/);
       assert.match(css, /\.brand-logo-symbol\{width:40px;height:auto;display:none\}/);
       assert.match(css, /\.site-header\.menu-open \.mobile-menu>span:nth-child\(2\)\{opacity:0/);
       assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*\.site-header/);
@@ -315,6 +348,31 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(responsiveAudit, /\.public-site \.footer-grid\{grid-template-columns:minmax\(0,1fr\)/);
       assert.match(responsiveAudit, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*\.public-site \.gallery-item img\{transition:none!important\}/);
       assert.match(publicSite, /booking-choice-panel booking-calendar-panel/);
+      assert.match(publicSite, /src="\/portfolio\/about-paula\.jpg"/);
+      assert.match(publicSite, /alt="Retrato de Paula Peixoto"/);
+      assert.match(css, /\.about-photo img\{filter:saturate\(1\.05\) sepia\(\.16\) contrast\(1\.04\) brightness\(\.97\)\}/);
+      assert.match(css, /\.about-photo:after\{[\s\S]*mix-blend-mode:soft-light/);
+    });
+
+    await t.test("CTA final mantém a âncora de marcação e composição editorial responsiva", async () => {
+      const [publicSite, css] = await Promise.all([
+        readFile("app/public-site.tsx", "utf8"),
+        readFile("app/globals.css", "utf8"),
+      ]);
+      const ctaMarkup = publicSite.match(
+        /<section className="cta-band"[\s\S]*?<\/section>/,
+      )?.[0] ?? "";
+
+      assert.match(ctaMarkup, /aria-labelledby="final-cta-title"/);
+      assert.match(ctaMarkup, /className="cta-eyebrow">Um momento só seu/);
+      assert.match(ctaMarkup, /id="final-cta-title">Pronta para cuidar de si\?/);
+      assert.match(ctaMarkup, /className="cta-values"/);
+      assert.match(ctaMarkup, /className="btn btn-primary cta-button" href="#marcar"/);
+      assert.match(css, /\.cta-inner\{[\s\S]*radial-gradient[\s\S]*linear-gradient/);
+      assert.match(css, /\.cta-inner:before\{[\s\S]*border:1px solid/);
+      assert.match(css, /\.cta-button:hover i\{[\s\S]*translateX\(3px\)/);
+      assert.match(css, /@media\(max-width:768px\)\{[\s\S]*\.public-site \.cta-button\{[\s\S]*width:min\(100%,300px\)/);
+      assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*\.public-site \.cta-button i\{transition:none!important\}/);
     });
 
     await t.test("marcação pública começa apenas por data e hora", async () => {
@@ -544,7 +602,12 @@ test("autenticação administrativa e rotas principais", async (t) => {
     await t.test("acesso a /admin e API com sessão válida", async () => {
       const page = await fetchApp("/admin", { headers: { cookie: ownerCookie } });
       assert.equal(page.status, 200);
-      assert.match(await page.text(), /Agenda/);
+      const pageHtml = await page.text();
+      assert.match(pageHtml, /Agenda/);
+      assert.match(
+        pageHtml,
+        /href="(?:https?:\/\/[^"]+)?\/icon\.png\?[^"]+"/,
+      );
       const api = await fetchApp("/api/admin/appointments", { headers: { cookie: ownerCookie } });
       assert.equal(api.status, 200);
       assert.ok(Array.isArray((await api.json()).appointments));

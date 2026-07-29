@@ -503,11 +503,11 @@ export function PublicSite() {
           ))}
         </div>
         <div className="mobile-navigation-footer">
-          <span>Paula Peixoto · Porto</span>
+          <span>Paula Peixoto · Barcelos</span>
           <a href="tel:+351912345678" tabIndex={menuOpen ? 0 : -1} onClick={closeMobileNavigation}>
             Telefonar
           </a>
-          <span>Terça a sábado · 09:30–19:00</span>
+          <span>Terças, Quintas e Sábados</span>
         </div>
         <a
           className="mobile-navigation-cta"
@@ -539,7 +539,16 @@ export function PublicSite() {
       </div></section>
 
       <section className="about" id="sobre"><div className="shell about-grid">
-        <div className="about-photo"><img src="/portfolio/paula.jpg" alt="Paula Peixoto no seu salão"/></div>
+        <div className="about-photo">
+          <Image
+            src="/portfolio/about-paula.jpg"
+            alt="Retrato de Paula Peixoto"
+            width={960}
+            height={958}
+            sizes="(max-width: 768px) calc(100vw - 24px), 45vw"
+            unoptimized
+          />
+        </div>
         <div className="about-copy"><span className="eyebrow">A profissional</span><h2>Sobre a Paula</h2>
           <p>Com mais de 20 anos de experiência, Paula Peixoto dedica-se a realçar a beleza de cada cliente através de um atendimento próximo, cuidado e personalizado. Do cabelo às unhas, cada serviço é pensado com atenção ao detalhe e ao conforto de quem a visita.</p>
           <div className="values"><div className="value"><b>Experiência</b><small>Técnica aperfeiçoada ao longo dos anos</small></div><div className="value"><b>Confiança</b><small>Uma relação próxima com cada cliente</small></div><div className="value"><b>Detalhe</b><small>Cuidado em cada etapa do serviço</small></div></div>
@@ -560,9 +569,9 @@ export function PublicSite() {
             <p>Um pedido simples, em três passos. Comece pelo momento que lhe é mais conveniente e confirme todos os detalhes antes de enviar.</p>
 
             <div className="contact-list-horizontal">
-              <div className="contact-line"><i>☎</i><div><b>Contacto</b><span>+351 912 345 678</span></div></div>
-              <div className="contact-line"><i>⌖</i><div><b>Localização</b><span>Rua Exemplo, 123 · Porto</span></div></div>
-              <div className="contact-line"><i>◷</i><div><b>Horário</b><span>Terça a sábado · 09:30–19:00</span></div></div>
+              <div className="contact-line"><i>☎</i><div><b>Contacto</b><span>+351 914 763 032</span></div></div>
+              <div className="contact-line"><i>⌖</i><div><b>Localização</b><span>Rua das Mimosas, Faria</span></div></div>
+              <div className="contact-line"><i>◷</i><div><b>Horário</b><span>Terças, Quintas e Sábados</span></div></div>
             </div>
           </div>
 
@@ -789,8 +798,24 @@ export function PublicSite() {
       </section>
     </main>
 
-    {/* O RESTO MANTÉM-SE IGUAL (cta-band e footer) */}
-    <section className="cta-band"><div className="shell cta-inner"><h2>Pronta para cuidar de si?</h2><p>Marque o seu momento de beleza e deixe a Paula cuidar de cada detalhe com atenção, técnica e delicadeza.</p><a className="btn btn-primary" href="#marcar">Marcar agora</a></div></section>
+    <section className="cta-band" aria-labelledby="final-cta-title">
+      <div className="shell cta-inner">
+        <span className="cta-orbit cta-orbit-left" aria-hidden="true" />
+        <span className="cta-orbit cta-orbit-right" aria-hidden="true" />
+        <div className="cta-copy">
+          <span className="cta-eyebrow">Um momento só seu</span>
+          <h2 id="final-cta-title">Pronta para cuidar de si?</h2>
+          <p>Marque o seu momento de beleza e deixe a Paula cuidar de cada detalhe com atenção, técnica e delicadeza.</p>
+          <div className="cta-values" aria-label="Cuidado, técnica e delicadeza">
+            <span>Cuidado</span><i aria-hidden="true" /><span>Técnica</span><i aria-hidden="true" /><span>Delicadeza</span>
+          </div>
+        </div>
+        <a className="btn btn-primary cta-button" href="#marcar">
+          <span>Marcar agora</span>
+          <i aria-hidden="true">→</i>
+        </a>
+      </div>
+    </section>
     <footer className="site-footer"><div className="shell"><div className="footer-grid">
       <div><h3 className="footer-brand">Paula Peixoto</h3><p>Um espaço dedicado ao seu bem-estar, onde a arte do cabeleireiro encontra a tranquilidade do cuidado pessoal.</p></div>
       <div><h4>Navegação</h4><ul><li><a href="#inicio">Início</a></li><li><a href="#servicos">Serviços</a></li><li><a href="#galeria">Galeria</a></li><li><a href="#sobre">Sobre</a></li></ul></div>
