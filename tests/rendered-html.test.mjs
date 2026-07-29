@@ -188,6 +188,56 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.equal(targetNearPageEnd, 3700);
     });
 
+    await t.test("navbar pública responde a scroll, secções, hash e menu mobile acessível", async () => {
+      const [publicSite, css] = await Promise.all([
+        readFile("app/public-site.tsx", "utf8"),
+        readFile("app/globals.css", "utf8"),
+      ]);
+
+      for (const [id, label] of [
+        ["inicio", "Início"],
+        ["servicos", "Serviços"],
+        ["sobre", "Sobre"],
+        ["galeria", "Galeria"],
+        ["contacto", "Contacto"],
+      ]) {
+        assert.match(publicSite, new RegExp(`\\["${id}", "${label}"\\]`));
+      }
+      assert.match(publicSite, /window\.scrollY > 28/);
+      assert.match(publicSite, /addEventListener\("scroll", handleScroll, \{ passive: true \}\)/);
+      assert.match(publicSite, /new IntersectionObserver/);
+      assert.match(publicSite, /aria-current=\{activeSection === id \? "location" : undefined\}/);
+      assert.match(publicSite, /siteHeaderRef\.current/);
+      assert.match(publicSite, /header\?\.getBoundingClientRect\(\)\.bottom/);
+      assert.match(publicSite, /window\.location\.hash/);
+      assert.match(publicSite, /requestAnimationFrame\(\(\) => scrollToLandingTarget\(target\)\)/);
+
+      assert.match(publicSite, /aria-controls="mobile-navigation"/);
+      assert.match(publicSite, /event\.key === "Escape"/);
+      assert.match(publicSite, /event\.key !== "Tab"/);
+      assert.match(publicSite, /element\.offsetParent !== null/);
+      assert.match(publicSite, /event\.preventDefault\(\)/);
+      assert.match(publicSite, /document\.addEventListener\("pointerdown", handlePointerDown\)/);
+      assert.match(publicSite, /document\.body\.style\.overflow = "hidden"/);
+      assert.match(publicSite, /document\.body\.style\.overflow = previousOverflow/);
+      assert.match(publicSite, /querySelector<HTMLAnchorElement>\("a"\)\?\.focus\(\)/);
+      assert.match(publicSite, /window\.matchMedia\("\(min-width: 901px\)"\)/);
+      assert.match(publicSite, /tabIndex=\{menuOpen \? 0 : -1\}/);
+      assert.match(publicSite, /onClick=\{closeMobileNavigation\}/);
+
+      assert.match(css, /\.public-nav-frame\{[\s\S]*background:transparent/);
+      assert.match(css, /\.site-header\.is-scrolled \.public-nav-frame\{[\s\S]*border-radius:999px/);
+      assert.match(css, /background:rgba\(249,249,246,.88\)/);
+      assert.match(css, /backdrop-filter:blur\(18px\) saturate\(1.12\)/);
+      assert.match(css, /\.nav-links a\.active/);
+      assert.match(css, /\.site-header a:focus-visible,.site-header button:focus-visible/);
+      assert.match(css, /@media\(max-width:1120px\)/);
+      assert.match(css, /@media\(max-width:900px\)/);
+      assert.match(css, /@media\(max-width:390px\)/);
+      assert.match(css, /\.site-header\.menu-open \.mobile-navigation/);
+      assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*\.site-header/);
+    });
+
     await t.test("marcação pública começa apenas por data e hora", async () => {
       const response = await fetchApp("/");
       const html = await response.text();

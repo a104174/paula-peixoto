@@ -24,6 +24,13 @@ const gallery = [
 const initialForm: { serviceId: string; date: string; time: string; name: string; phone: string; email: string; notes: string } = {
   serviceId: services[0].id, date: "", time: "", name: "", phone: "", email: "", notes: "",
 };
+const publicNavigation = [
+  ["inicio", "Início"],
+  ["servicos", "Serviços"],
+  ["sobre", "Sobre"],
+  ["galeria", "Galeria"],
+  ["contacto", "Contacto"],
+] as const;
 type PublicService = {
   id: string;
   name: string;
@@ -35,6 +42,8 @@ type PublicService = {
 
 export function PublicSite() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [headerScrolled, setHeaderScrolled] = useState(false);
+  const [activeSection, setActiveSection] = useState("inicio");
   const [form, setForm] = useState(initialForm);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [availabilitySlots, setAvailabilitySlots] = useState<string[]>(availableTimes);
@@ -47,6 +56,9 @@ export function PublicSite() {
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   const bookingFormRef = useRef<HTMLFormElement>(null);
   const bookingSuccessRef = useRef<HTMLDivElement>(null);
+  const siteHeaderRef = useRef<HTMLElement>(null);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileNavigationRef = useRef<HTMLElement>(null);
   const previousStepRef = useRef(step);
   const scrollAnimationRef = useRef<number | null>(null);
   const [displayServices, setDisplayServices] = useState<PublicService[]>(
@@ -110,6 +122,119 @@ export function PublicSite() {
     if (submitted) bookingSuccessRef.current?.focus();
   }, [submitted]);
 
+  useEffect(() => {
+    let frameId: number | null = null;
+    const updateHeader = () => {
+      frameId = null;
+      setHeaderScrolled(window.scrollY > 28);
+    };
+    const handleScroll = () => {
+      if (frameId === null) frameId = requestAnimationFrame(updateHeader);
+    };
+    updateHeader();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (frameId !== null) cancelAnimationFrame(frameId);
+    };
+  }, []);
+
+  useEffect(() => {
+    const visibleSections = new Map<string, number>();
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) visibleSections.set(entry.target.id, entry.intersectionRatio);
+        else visibleSections.delete(entry.target.id);
+      }
+      const current = [...visibleSections.entries()].sort((left, right) => right[1] - left[1])[0];
+      if (current) setActiveSection(current[0]);
+    }, {
+      rootMargin: "-16% 0px -66% 0px",
+      threshold: [0, 0.1, 0.25, 0.5, 0.75, 1],
+    });
+    for (const [id] of publicNavigation) {
+      const section = document.getElementById(id);
+      if (section) observer.observe(section);
+    }
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const previousPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = "hidden";
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`;
+
+    const focusFrame = requestAnimationFrame(() => {
+      mobileNavigationRef.current?.querySelector<HTMLAnchorElement>("a")?.focus();
+    });
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !siteHeaderRef.current?.contains(event.target)) {
+        setMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        mobileMenuButtonRef.current?.focus();
+        return;
+      }
+      if (event.key !== "Tab" || !siteHeaderRef.current) return;
+      const focusableElements = [...siteHeaderRef.current.querySelectorAll<HTMLElement>(
+        'a[href]:not([tabindex="-1"]), button:not([disabled])',
+      )].filter((element) => element.offsetParent !== null);
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements.at(-1);
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement?.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement?.focus();
+      }
+    };
+    const desktopQuery = window.matchMedia("(min-width: 901px)");
+    const handleDesktop = (event: MediaQueryListEvent) => {
+      if (event.matches) setMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    desktopQuery.addEventListener("change", handleDesktop);
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      desktopQuery.removeEventListener("change", handleDesktop);
+      document.body.style.overflow = previousOverflow;
+      document.body.style.paddingRight = previousPaddingRight;
+    };
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (!window.location.hash) return;
+    let targetId: string;
+    try {
+      targetId = decodeURIComponent(window.location.hash.slice(1));
+    } catch {
+      return;
+    }
+    const target = document.getElementById(targetId);
+    if (!target) return;
+
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => scrollToLandingTarget(target));
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, []);
+
   useEffect(() => () => {
     if (scrollAnimationRef.current !== null) {
       cancelAnimationFrame(scrollAnimationRef.current);
@@ -124,7 +249,7 @@ export function PublicSite() {
     const scrollingElement = document.scrollingElement;
     if (!scrollingElement) return;
 
-    const header = document.querySelector<HTMLElement>(".public-site .site-header");
+    const header = siteHeaderRef.current;
     const startTop = scrollingElement.scrollTop;
     const targetTop = calculateLandingScrollTop({
       currentTop: startTop,
@@ -210,6 +335,10 @@ export function PublicSite() {
     setForm((current) => ({ ...current, [key]: value }));
     setMessage({ type: "", text: "" });
   }
+  function closeMobileNavigation() {
+    setMenuOpen(false);
+    requestAnimationFrame(() => mobileMenuButtonRef.current?.focus());
+  }
   function chooseService(id: string) {
     update("serviceId", id);
     const bookingSection = document.getElementById("marcar");
@@ -291,18 +420,71 @@ export function PublicSite() {
   }
 
   return <div className="public-site" onClick={handleLandingLinkClick}>
-    <header className="site-header">
-      <div className="shell nav">
-        <a className="brand" href="#inicio">Paula Peixoto</a>
-        <nav className="nav-links" aria-label="Navegação principal">
-          <a href="#inicio">Início</a><a href="#servicos">Serviços</a><a href="#sobre">Sobre</a><a href="#galeria">Galeria</a><a href="#contacto">Contacto</a>
-          <a className="btn btn-primary" href="#marcar">Marcar agora</a>
+    <header
+      className={`site-header ${headerScrolled ? "is-scrolled" : ""} ${menuOpen ? "menu-open" : ""}`}
+      ref={siteHeaderRef}
+    >
+      <div className="public-nav-frame">
+        <div className="nav">
+          <a className="brand" href="#inicio" aria-label="Paula Peixoto — início" onClick={() => setMenuOpen(false)}>
+            <span className="brand-monogram" aria-hidden="true">PP</span>
+            <span className="brand-name">Paula Peixoto</span>
+          </a>
+          <nav className="nav-links" aria-label="Navegação principal">
+            {publicNavigation.map(([id, label]) => (
+              <a
+                className={activeSection === id ? "active" : ""}
+                href={`#${id}`}
+                aria-current={activeSection === id ? "location" : undefined}
+                key={id}
+              >
+                {label}
+              </a>
+            ))}
+          </nav>
+          <div className="nav-actions">
+            <a className="btn btn-primary nav-book" href="#marcar" onClick={() => setMenuOpen(false)}>
+              <span className="nav-book-full">Marcar agora</span>
+              <span className="nav-book-short">Marcar</span>
+            </a>
+            <button
+              className="mobile-menu"
+              type="button"
+              ref={mobileMenuButtonRef}
+              aria-label={menuOpen ? "Fechar navegação" : "Abrir navegação"}
+              aria-expanded={menuOpen}
+              aria-controls="mobile-navigation"
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <span aria-hidden="true" /><span aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+        <nav
+          className="mobile-navigation"
+          id="mobile-navigation"
+          ref={mobileNavigationRef}
+          aria-label="Navegação móvel"
+          aria-hidden={!menuOpen}
+        >
+          {publicNavigation.map(([id, label]) => (
+            <a
+              className={activeSection === id ? "active" : ""}
+              href={`#${id}`}
+              aria-current={activeSection === id ? "location" : undefined}
+              tabIndex={menuOpen ? 0 : -1}
+              onClick={closeMobileNavigation}
+              key={id}
+            >
+              <span>{label}</span><i aria-hidden="true">↗</i>
+            </a>
+          ))}
+          <div className="mobile-navigation-footer">
+            <span>Paula Peixoto</span>
+            <a href="tel:+351912345678" tabIndex={menuOpen ? 0 : -1}>+351 912 345 678</a>
+          </div>
         </nav>
-        <button className="btn btn-secondary mobile-menu" type="button" aria-label="Abrir navegação" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>{menuOpen ? "Fechar" : "Menu"}</button>
       </div>
-      {menuOpen && <nav className="shell" aria-label="Navegação móvel" style={{ paddingBottom: 18, display: "grid", gap: 10, fontWeight: 600 }}>
-        {["inicio", "servicos", "sobre", "galeria", "contacto", "marcar"].map((id) => <a key={id} href={`#${id}`} onClick={() => setMenuOpen(false)}>{id === "marcar" ? "Marcar agora" : id.charAt(0).toUpperCase() + id.slice(1)}</a>)}
-      </nav>}
     </header>
 
     <main>
