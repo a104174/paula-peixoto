@@ -135,18 +135,57 @@ test("autenticação administrativa e rotas principais", async (t) => {
       }
     });
 
-    await t.test("scroll suave fica limitado ao website público e respeita movimento reduzido", async () => {
-      const [css, publicSite] = await Promise.all([
+    await t.test("scroll animado fica limitado aos links internos do website público", async () => {
+      const [css, publicSite, scrollUtilities] = await Promise.all([
         readFile("app/globals.css", "utf8"),
         readFile("app/public-site.tsx", "utf8"),
+        import("../lib/public-scroll.ts"),
       ]);
-      assert.match(css, /html:has\(\.public-site\)\{scroll-behavior:smooth;scroll-padding-top:98px\}/);
-      assert.match(css, /\.public-site \[id\]\{scroll-margin-top:98px\}/);
-      assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{html:has\(\.public-site\)\{scroll-behavior:auto\}\}/);
-      assert.doesNotMatch(css, /(?:^|})html\{scroll-behavior:smooth\}/);
-      assert.match(publicSite, /className="public-site"/);
+      assert.doesNotMatch(css, /scroll-behavior|scroll-padding|scroll-margin/);
+      assert.match(publicSite, /document\.scrollingElement/);
+      assert.equal(scrollUtilities.LANDING_SCROLL_DURATION_MS, 720);
+      assert.match(publicSite, /easeInOutCubic\(progress\)/);
+      assert.match(publicSite, /requestAnimationFrame\(animate\)/);
+      assert.match(publicSite, /getBoundingClientRect\(\)\.bottom/);
+      assert.match(publicSite, /a\[href\^="#"\]/);
+      assert.match(publicSite, /window\.history\.pushState\(window\.history\.state, "", hash\)/);
       assert.match(publicSite, /matchMedia\("\(prefers-reduced-motion: reduce\)"\)/);
-      assert.match(publicSite, /behavior: prefersReducedMotion \? "auto" : "smooth"/);
+      for (const id of ["servicos", "sobre", "galeria", "marcar", "contacto"]) {
+        assert.match(publicSite, new RegExp(`href="#${id}"|["']${id}["']`));
+      }
+
+      assert.equal(scrollUtilities.easeInOutCubic(0), 0);
+      assert.equal(scrollUtilities.easeInOutCubic(0.25), 0.0625);
+      assert.equal(scrollUtilities.easeInOutCubic(0.5), 0.5);
+      assert.equal(scrollUtilities.easeInOutCubic(0.75), 0.9375);
+      assert.equal(scrollUtilities.easeInOutCubic(1), 1);
+
+      const desktopTarget = scrollUtilities.calculateLandingScrollTop({
+        currentTop: 0,
+        targetViewportTop: 1200,
+        headerViewportBottom: 82,
+        scrollHeight: 5000,
+        viewportHeight: 900,
+      });
+      assert.equal(desktopTarget, 1102);
+
+      const mobileTargetAfterMenuCloses = scrollUtilities.calculateLandingScrollTop({
+        currentTop: 450,
+        targetViewportTop: 700,
+        headerViewportBottom: 82,
+        scrollHeight: 5000,
+        viewportHeight: 720,
+      });
+      assert.equal(mobileTargetAfterMenuCloses, 1052);
+
+      const targetNearPageEnd = scrollUtilities.calculateLandingScrollTop({
+        currentTop: 3500,
+        targetViewportTop: 900,
+        headerViewportBottom: 82,
+        scrollHeight: 4500,
+        viewportHeight: 800,
+      });
+      assert.equal(targetNearPageEnd, 3700);
     });
 
     await t.test("marcação pública começa apenas por data e hora", async () => {
@@ -157,6 +196,44 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(html, /Quando gostaria de vir/);
       assert.doesNotMatch(html, /Nome completo/);
       assert.doesNotMatch(html, /Enviar pedido de marcação/);
+    });
+
+    await t.test("wizard público mantém estrutura, ações e estados visuais consistentes", async () => {
+      const [publicSite, css] = await Promise.all([
+        readFile("app/public-site.tsx", "utf8"),
+        readFile("app/globals.css", "utf8"),
+      ]);
+
+      for (const step of [1, 2, 3]) {
+        assert.match(publicSite, new RegExp(`step === ${step}`));
+      }
+      assert.match(publicSite, /className="booking-content-grid"/);
+      assert.match(publicSite, /className="booking-review"/);
+      assert.match(publicSite, /ReviewItem label="Preço"/);
+      assert.match(publicSite, /ReviewItem label="Telemóvel"/);
+      assert.match(publicSite, /onEdit=\{\(\) => goToStep\(1\)\}/);
+      assert.match(publicSite, /onEdit=\{\(\) => goToStep\(2\)\}/);
+      assert.match(publicSite, /Continuar para serviços/);
+      assert.match(publicSite, /Rever pedido/);
+      assert.match(publicSite, /Confirmar marcação/);
+      assert.match(publicSite, /setSubmitted\(true\)/);
+      assert.match(publicSite, /if \(sending \|\| submitted\) return/);
+      assert.match(publicSite, /A aguardar confirmação/);
+      assert.match(publicSite, /Não precisa de enviar novamente/);
+      assert.match(publicSite, /Voltar ao início/);
+      assert.match(publicSite, /href="tel:\+351912345678"/);
+      assert.match(publicSite, /\$\{selectedService\.duration\} min · \$\{selectedService\.price\}/);
+
+      assert.match(css, /\.public-site \.booking-wizard\.wide-wizard\{/);
+      assert.match(css, /min-height:0/);
+      assert.match(css, /overflow:clip/);
+      assert.match(css, /\.public-site \.booking-content-grid\{\s*display:grid;\s*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+      assert.match(css, /\.public-site \.booking-actions\{\s*margin-top:32px/);
+      assert.match(css, /\.public-site \.booking-review-card dl>div\{[\s\S]*grid-template-columns:/);
+      assert.match(css, /@media\(max-width:900px\)\{[\s\S]*\.public-site \.booking-content-grid\{grid-template-columns:1fr/);
+      assert.match(css, /position:sticky;[\s\S]*bottom:0/);
+      assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
+      assert.doesNotMatch(css, /\.public-site \.booking-wizard\.wide-wizard\{[^}]*min-height:600px/);
     });
 
     await t.test("templates transacionais e preview local estão preparados", async () => {

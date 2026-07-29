@@ -1,6 +1,19 @@
 "use client";
 
-import { FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  calculateLandingScrollTop,
+  easeInOutCubic,
+  LANDING_SCROLL_DURATION_MS,
+} from "@/lib/public-scroll";
 import { availableTimes, services } from "@/lib/services";
 
 const gallery = [
@@ -33,7 +46,9 @@ export function PublicSite() {
   const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   const bookingFormRef = useRef<HTMLFormElement>(null);
+  const bookingSuccessRef = useRef<HTMLDivElement>(null);
   const previousStepRef = useRef(step);
+  const scrollAnimationRef = useRef<number | null>(null);
   const [displayServices, setDisplayServices] = useState<PublicService[]>(
     services.map(({ id, name, description, duration, price, icon }) => ({
       id, name, description, duration, price, icon,
@@ -91,16 +106,114 @@ export function PublicSite() {
     previousStepRef.current = step;
   }, [step]);
 
+  useEffect(() => {
+    if (submitted) bookingSuccessRef.current?.focus();
+  }, [submitted]);
+
+  useEffect(() => () => {
+    if (scrollAnimationRef.current !== null) {
+      cancelAnimationFrame(scrollAnimationRef.current);
+    }
+  }, []);
+
+  function scrollToLandingTarget(target: HTMLElement) {
+    if (scrollAnimationRef.current !== null) {
+      cancelAnimationFrame(scrollAnimationRef.current);
+    }
+
+    const scrollingElement = document.scrollingElement;
+    if (!scrollingElement) return;
+
+    const header = document.querySelector<HTMLElement>(".public-site .site-header");
+    const startTop = scrollingElement.scrollTop;
+    const targetTop = calculateLandingScrollTop({
+      currentTop: startTop,
+      targetViewportTop: target.getBoundingClientRect().top,
+      headerViewportBottom: header?.getBoundingClientRect().bottom ?? 0,
+      scrollHeight: scrollingElement.scrollHeight,
+      viewportHeight: scrollingElement.clientHeight,
+    });
+    const distance = targetTop - startTop;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReducedMotion || Math.abs(distance) < 1) {
+      scrollingElement.scrollTop = targetTop;
+      scrollAnimationRef.current = null;
+      return;
+    }
+
+    let startedAt: number | undefined;
+    const animate = (timestamp: number) => {
+      startedAt ??= timestamp;
+      const progress = Math.min((timestamp - startedAt) / LANDING_SCROLL_DURATION_MS, 1);
+      scrollingElement.scrollTop = startTop + distance * easeInOutCubic(progress);
+
+      if (progress < 1) {
+        scrollAnimationRef.current = requestAnimationFrame(animate);
+      } else {
+        scrollingElement.scrollTop = targetTop;
+        scrollAnimationRef.current = null;
+      }
+    };
+
+    scrollAnimationRef.current = requestAnimationFrame(animate);
+  }
+
+  function scheduleScrollToLandingTarget(target: HTMLElement) {
+    if (scrollAnimationRef.current !== null) {
+      cancelAnimationFrame(scrollAnimationRef.current);
+    }
+    scrollAnimationRef.current = requestAnimationFrame(() => scrollToLandingTarget(target));
+  }
+
+  function handleLandingLinkClick(event: ReactMouseEvent<HTMLDivElement>) {
+    if (
+      event.defaultPrevented
+      || event.button !== 0
+      || event.metaKey
+      || event.ctrlKey
+      || event.shiftKey
+      || event.altKey
+      || !(event.target instanceof Element)
+    ) return;
+
+    const anchor = event.target.closest<HTMLAnchorElement>('a[href^="#"]');
+    if (
+      !anchor
+      || !event.currentTarget.contains(anchor)
+      || anchor.hasAttribute("download")
+      || (anchor.target && anchor.target !== "_self")
+    ) return;
+
+    const hash = anchor.hash;
+    if (!hash || hash === "#") return;
+
+    let targetId: string;
+    try {
+      targetId = decodeURIComponent(hash.slice(1));
+    } catch {
+      return;
+    }
+    const target = document.getElementById(targetId);
+    if (!target || !event.currentTarget.contains(target)) return;
+
+    event.preventDefault();
+    if (window.location.hash === hash) {
+      window.history.replaceState(window.history.state, "", hash);
+    } else {
+      window.history.pushState(window.history.state, "", hash);
+    }
+    scheduleScrollToLandingTarget(target);
+  }
+
   function update(key: keyof typeof initialForm, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
     setMessage({ type: "", text: "" });
   }
   function chooseService(id: string) {
     update("serviceId", id);
-    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    document.querySelector("#marcar")?.scrollIntoView({
-      behavior: prefersReducedMotion ? "auto" : "smooth",
-    });
+    const bookingSection = document.getElementById("marcar");
+    if (bookingSection) scheduleScrollToLandingTarget(bookingSection);
   }
   function chooseDate(date: string) {
     setForm((current) => ({ ...current, date, time: "" }));
@@ -177,7 +290,7 @@ export function PublicSite() {
     } finally { setSending(false); }
   }
 
-  return <div className="public-site">
+  return <div className="public-site" onClick={handleLandingLinkClick}>
     <header className="site-header">
       <div className="shell nav">
         <a className="brand" href="#inicio">Paula Peixoto</a>
@@ -188,7 +301,7 @@ export function PublicSite() {
         <button className="btn btn-secondary mobile-menu" type="button" aria-label="Abrir navegação" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>{menuOpen ? "Fechar" : "Menu"}</button>
       </div>
       {menuOpen && <nav className="shell" aria-label="Navegação móvel" style={{ paddingBottom: 18, display: "grid", gap: 10, fontWeight: 600 }}>
-        {["inicio", "servicos", "sobre", "galeria", "marcar"].map((id) => <a key={id} href={`#${id}`} onClick={() => setMenuOpen(false)}>{id === "marcar" ? "Marcar agora" : id.charAt(0).toUpperCase() + id.slice(1)}</a>)}
+        {["inicio", "servicos", "sobre", "galeria", "contacto", "marcar"].map((id) => <a key={id} href={`#${id}`} onClick={() => setMenuOpen(false)}>{id === "marcar" ? "Marcar agora" : id.charAt(0).toUpperCase() + id.slice(1)}</a>)}
       </nav>}
     </header>
 
@@ -240,14 +353,28 @@ export function PublicSite() {
 
           <form className="booking-card booking-wizard wide-wizard" ref={bookingFormRef} onSubmit={submit} noValidate={step === 3}>
             {submitted ? (
-              <div className="booking-success" role="status" tabIndex={-1}>
-                <span aria-hidden="true" className="success-icon-anim">✓</span>
-                <p className="eyebrow">Pedido recebido</p>
+              <div className="booking-success" ref={bookingSuccessRef} role="status" tabIndex={-1}>
+                <div className="success-icon-anim" aria-hidden="true"><span>✓</span></div>
+                <p className="booking-success-kicker">Pedido recebido</p>
                 <h3>Obrigada, {form.name.split(" ")[0]}.</h3>
-                <p>O seu pedido para {formatPublicDate(form.date)}, às {form.time}, ficou registado. A Paula entrará em contacto para confirmar.</p>
-                <div className="booking-success-detail">
-                  <strong>{selectedService?.name}</strong>
-                  <span>{selectedService?.duration} min{selectedService?.price ? ` · ${selectedService.price}` : ""}</span>
+                <p className="booking-success-message">O seu pedido ficou registado. A Paula irá confirmar a disponibilidade consigo por telefone ou email.</p>
+                <span className="booking-pending-badge"><i aria-hidden="true" /> A aguardar confirmação</span>
+                <div className="booking-success-summary">
+                  <div>
+                    <span>Momento</span>
+                    <strong>{formatPublicDate(form.date)}</strong>
+                    <small>{form.time}</small>
+                  </div>
+                  <div>
+                    <span>Serviço</span>
+                    <strong>{selectedService?.name ?? "Serviço selecionado"}</strong>
+                    <small>{selectedService ? `${selectedService.duration} min · ${selectedService.price}` : "Detalhes a confirmar"}</small>
+                  </div>
+                </div>
+                <p className="booking-success-reassurance">Não precisa de enviar novamente. Entraremos em contacto assim que o pedido for revisto.</p>
+                <div className="booking-success-actions">
+                  <a className="btn btn-primary" href="#inicio">Voltar ao início</a>
+                  <a className="btn btn-secondary" href="tel:+351912345678">Contactar a Paula</a>
                 </div>
               </div>
             ) : (
@@ -273,15 +400,27 @@ export function PublicSite() {
                 </ol>
 
                 <div className="booking-step" key={step}>
-                  {step === 1 && (
-                    <div className="booking-step-split">
-                      <div className="booking-pane left-pane">
-                        <header className="booking-step-heading">
-                          <span className="booking-step-number">Passo 1 de 3</span>
-                          <h3 ref={stepHeadingRef} tabIndex={-1}>Quando gostaria de vir?</h3>
-                          <p>Selecione o dia desejado no calendário.</p>
-                        </header>
+                  <header className={`booking-step-heading ${step === 3 ? "centered" : ""}`}>
+                    <span className="booking-step-number">Passo {step} de 3</span>
+                    <h3 ref={stepHeadingRef} tabIndex={-1}>
+                      {step === 1 ? "Quando gostaria de vir?" : step === 2 ? "Escolha o serviço e indique os seus dados" : "Confirme os detalhes"}
+                    </h3>
+                    <p>
+                      {step === 1
+                        ? "Selecione uma data e um horário disponível."
+                        : step === 2
+                          ? "Revise o momento escolhido, selecione o cuidado pretendido e preencha os seus contactos."
+                          : "Verifique tudo com atenção antes de enviar o pedido à Paula."}
+                    </p>
+                  </header>
 
+                  {step === 1 && (
+                    <div className="booking-content-grid">
+                      <section className="booking-pane booking-choice-panel" aria-labelledby="calendar-title">
+                        <div className="booking-pane-heading">
+                          <span>Data</span>
+                          <h4 id="calendar-title">Escolha o dia</h4>
+                        </div>
                         <div className="booking-calendar">
                           <div className="booking-calendar-toolbar">
                             <button
@@ -313,11 +452,15 @@ export function PublicSite() {
                             ) : <span role="gridcell" key={`empty-${index}`} />)}
                           </div>
                         </div>
-                      </div>
+                      </section>
 
-                      <div className="booking-pane right-pane">
+                      <section className="booking-pane booking-choice-panel" aria-labelledby="times-title">
+                        <div className="booking-pane-heading">
+                          <span>Hora</span>
+                          <h4 id="times-title">Escolha o horário</h4>
+                        </div>
                         <fieldset className="booking-times" disabled={!form.date || availabilityLoading}>
-                          <legend className="times-legend">{form.date ? `Horários para ${formatPublicDate(form.date)}` : "Selecione um dia para ver os horários"}</legend>
+                          <legend className="times-legend">{form.date ? `Disponibilidade para ${formatPublicDate(form.date)}` : "Selecione primeiro um dia no calendário"}</legend>
                           <div className="time-chips">
                             {availabilitySlots.map((time) => (
                               <button
@@ -335,19 +478,24 @@ export function PublicSite() {
                           </div>
                           {availabilityLoading && <small className="availability-note pulse-anim">A confirmar disponibilidade…</small>}
                         </fieldset>
-                      </div>
+                        <div className={`booking-selection-summary ${form.date && form.time ? "complete" : ""}`} aria-live="polite">
+                          <span>A sua seleção</span>
+                          <strong>{form.date ? formatPublicDate(form.date) : "Ainda sem data"}</strong>
+                          <small>{form.time ? `às ${form.time}` : "Escolha um horário para continuar"}</small>
+                        </div>
+                      </section>
                     </div>
                   )}
 
                   {step === 2 && (
-                    <div className="booking-step-split">
-                      <div className="booking-pane left-pane">
-                        <header className="booking-step-heading">
-                          <span className="booking-step-number">Passo 2 de 3</span>
-                          <h3 ref={stepHeadingRef} tabIndex={-1}>O seu serviço</h3>
-                          <p>Escolha o cuidado pretendido para esta marcação.</p>
-                        </header>
-                        <BookingMomentSummary date={form.date} time={form.time} onEdit={() => goToStep(1)} />
+                    <>
+                      <BookingMomentSummary date={form.date} time={form.time} onEdit={() => goToStep(1)} />
+                      <div className="booking-content-grid">
+                        <section className="booking-pane booking-choice-panel" aria-labelledby="service-title">
+                          <div className="booking-pane-heading">
+                            <span>Serviço</span>
+                            <h4 id="service-title">O cuidado pretendido</h4>
+                          </div>
                         <fieldset className="booking-service-fieldset">
                           <div className="booking-service-options list-layout">
                             {displayServices.map((service) => (
@@ -362,64 +510,63 @@ export function PublicSite() {
                                 <span aria-hidden="true">{service.icon}</span>
                                 <div className="service-info-wrap">
                                   <strong>{service.name}</strong>
-                                  <small>{service.duration} min · A partir de {service.price}</small>
+                                  <small>{service.duration} min · {service.price}</small>
                                 </div>
+                                <i className="service-selected-mark" aria-hidden="true">✓</i>
                               </label>
                             ))}
                           </div>
                         </fieldset>
-                      </div>
+                        </section>
 
-                      <div className="booking-pane right-pane">
-                        <header className="booking-step-heading desktop-hidden">
-                          <h3>Os seus dados</h3>
-                        </header>
-                        <div className="form-grid booking-details form-elegant">
+                        <section className="booking-pane booking-form-panel" aria-labelledby="details-title">
+                          <div className="booking-pane-heading">
+                            <span>Contactos</span>
+                            <h4 id="details-title">Os seus dados</h4>
+                          </div>
+                          <div className="form-grid booking-details form-elegant">
                           <div className="field full"><label htmlFor="name">Nome completo</label><input id="name" autoComplete="name" value={form.name} onChange={(event) => update("name", event.target.value)} required /></div>
                           <div className="field full"><label htmlFor="phone">Telemóvel</label><input id="phone" type="tel" inputMode="tel" autoComplete="tel" value={form.phone} onChange={(event) => update("phone", event.target.value)} required /></div>
                           <div className="field full"><label htmlFor="email">Email (opcional)</label><input id="email" type="email" autoComplete="email" value={form.email} onChange={(event) => update("email", event.target.value)} /></div>
-                          <div className="field full"><label htmlFor="notes">Observações (opcional)</label><textarea id="notes" rows={4} value={form.notes} onChange={(event) => update("notes", event.target.value)} placeholder="Indique detalhes ou requisitos específicos..." /></div>
-                        </div>
+                            <div className="field full"><label htmlFor="notes">Observações (opcional)</label><textarea id="notes" rows={4} value={form.notes} onChange={(event) => update("notes", event.target.value)} placeholder="Indique detalhes ou requisitos específicos…" /></div>
+                          </div>
+                        </section>
                       </div>
-                    </div>
+                    </>
                   )}
 
                   {step === 3 && (
-                    <div className="booking-step-centered">
-                      <header className="booking-step-heading text-center">
-                        <span className="booking-step-number">Passo 3 de 3</span>
-                        <h3 ref={stepHeadingRef} tabIndex={-1}>Confirme os detalhes</h3>
-                        <p>O pedido só será enviado depois da sua confirmação final.</p>
-                      </header>
-                      <div className="booking-review elegant-review">
-                        <ReviewGroup title="Momento" onEdit={() => goToStep(1)}>
-                          <ReviewItem label="Data" value={formatPublicDate(form.date)} />
-                          <ReviewItem label="Hora" value={form.time} />
-                        </ReviewGroup>
-                        <ReviewGroup title="Serviço" onEdit={() => goToStep(2)}>
-                          <ReviewItem label="Serviço" value={selectedService?.name ?? "—"} />
-                          <ReviewItem label="Duração" value={selectedService ? `${selectedService.duration} min` : "—"} />
-                        </ReviewGroup>
-                        <ReviewGroup title="Os seus dados" onEdit={() => goToStep(2)}>
-                          <ReviewItem label="Nome" value={form.name} />
-                          <ReviewItem label="Telemóvel" value={form.phone} />
-                          <ReviewItem label="Email" value={form.email || "Não indicado"} />
-                          <ReviewItem label="Observações" value={form.notes || "Sem observações"} />
-                        </ReviewGroup>
-                      </div>
+                    <div className="booking-review">
+                      <ReviewGroup title="Momento" icon="◷" onEdit={() => goToStep(1)}>
+                        <ReviewItem label="Data" value={formatPublicDate(form.date)} />
+                        <ReviewItem label="Hora" value={form.time} />
+                      </ReviewGroup>
+                      <ReviewGroup title="Serviço" icon={selectedService?.icon ?? "✦"} onEdit={() => goToStep(2)}>
+                        <ReviewItem label="Serviço" value={selectedService?.name ?? "—"} />
+                        <ReviewItem label="Duração" value={selectedService ? `${selectedService.duration} min` : "—"} />
+                        <ReviewItem label="Preço" value={selectedService?.price ?? "—"} />
+                      </ReviewGroup>
+                      <ReviewGroup title="Dados pessoais" icon="◇" wide onEdit={() => goToStep(2)}>
+                        <ReviewItem label="Nome" value={form.name} />
+                        <ReviewItem label="Telemóvel" value={form.phone} />
+                        <ReviewItem label="Email" value={form.email || "Não indicado"} />
+                        <ReviewItem label="Observações" value={form.notes || "Sem observações"} />
+                      </ReviewGroup>
                     </div>
                   )}
                 </div>
 
-                {message.text && <p className={`form-message alert-anim ${message.type}`} role="alert">{message.text}</p>}
+                {message.text && <p className={`form-message booking-alert alert-anim ${message.type}`} role="alert">{message.text}</p>}
 
-                <footer className="booking-actions elegant-footer">
-                  {step > 1 && <button className="btn btn-secondary" type="button" disabled={sending} onClick={() => goToStep(step === 3 ? 2 : 1)}>Voltar</button>}
-                  {step === 1 && <button className="btn btn-primary" type="button" disabled={!form.date || !form.time || availabilityLoading} onClick={() => goToStep(2)}>Continuar para Serviços</button>}
-                  {step === 2 && <button className="btn btn-primary" type="button" disabled={availabilityLoading} onClick={() => void continueToConfirmation()}>{availabilityLoading ? "A validar…" : "Rever Pedido"}</button>}
-                  {step === 3 && <button className="btn btn-primary btn-large" type="submit" disabled={sending}>{sending ? "A enviar…" : "Confirmar Marcação"}</button>}
+                <footer className="booking-actions">
+                  <div>
+                    {step > 1 && <button className="btn btn-secondary" type="button" disabled={sending} onClick={() => goToStep(step === 3 ? 2 : 1)}>Voltar</button>}
+                    {step === 1 && <button className="btn btn-primary" type="button" disabled={!form.date || !form.time || availabilityLoading} onClick={() => goToStep(2)}>Continuar para serviços</button>}
+                    {step === 2 && <button className="btn btn-primary" type="button" disabled={availabilityLoading} onClick={() => void continueToConfirmation()}>{availabilityLoading ? "A validar…" : "Rever pedido"}</button>}
+                    {step === 3 && <button className="btn btn-primary btn-large" type="submit" disabled={sending}>{sending ? "A enviar…" : "Confirmar marcação"}</button>}
+                  </div>
+                  {step === 3 && <p className="form-note">Este é um pedido de marcação. A confirmação final será feita pela Paula.</p>}
                 </footer>
-                {step === 3 && <p className="form-note">O pedido será revisto e confirmado por telefone ou email.</p>}
               </>
             )}
           </form>
@@ -442,25 +589,32 @@ export function PublicSite() {
 function BookingMomentSummary({ date, time, onEdit }: { date: string; time: string; onEdit: () => void }) {
   return (
     <div className="booking-moment-summary">
-      <div><span>Data escolhida</span><strong>{formatPublicDate(date)}</strong></div>
-      <div><span>Hora</span><strong>{time}</strong></div>
-      <button type="button" onClick={onEdit}>Alterar</button>
+      <div className="booking-moment-icon" aria-hidden="true">◷</div>
+      <div><span>Momento escolhido</span><strong>{formatPublicDate(date)}</strong><small>às {time}</small></div>
+      <button type="button" onClick={onEdit}><span aria-hidden="true">✎</span> Alterar</button>
     </div>
   );
 }
 
 function ReviewGroup({
   title,
+  icon,
+  wide = false,
   onEdit,
   children,
 }: {
   title: string;
+  icon: string;
+  wide?: boolean;
   onEdit: () => void;
   children: ReactNode;
 }) {
   return (
-    <section>
-      <header><h4>{title}</h4><button type="button" onClick={onEdit}>Editar</button></header>
+    <section className={`booking-review-card ${wide ? "wide" : ""}`}>
+      <header>
+        <div><span aria-hidden="true">{icon}</span><h4>{title}</h4></div>
+        <button type="button" onClick={onEdit}><span aria-hidden="true">✎</span> Editar</button>
+      </header>
       <dl>{children}</dl>
     </section>
   );
