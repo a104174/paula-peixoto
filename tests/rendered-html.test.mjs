@@ -335,7 +335,7 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(responsiveAudit, /--public-mobile-gutter:clamp\(12px,4vw,20px\)/);
       assert.match(responsiveAudit, /\.public-site\{max-width:100%;overflow-x:clip\}/);
       assert.match(responsiveAudit, /\.public-site \.hero-grid\{[\s\S]*grid-template-columns:minmax\(0,1fr\)/);
-      assert.match(responsiveAudit, /\.public-site \.service-grid\{grid-template-columns:minmax\(0,1fr\)/);
+      assert.match(responsiveAudit, /\.public-site \.service-grid\s*\{[\s\S]*grid-template-columns:minmax\(0,1fr\)/);
       assert.match(responsiveAudit, /\.public-site \.about-grid\{[\s\S]*grid-template-columns:minmax\(0,1fr\)/);
       assert.match(responsiveAudit, /\.public-site \.gallery-grid\{[\s\S]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
       assert.match(responsiveAudit, /@media\(max-width:480px\)\{[\s\S]*\.public-site \.gallery-grid\{grid-template-columns:minmax\(0,1fr\)/);
@@ -352,6 +352,37 @@ test("autenticação administrativa e rotas principais", async (t) => {
       assert.match(publicSite, /alt="Retrato de Paula Peixoto"/);
       assert.match(css, /\.about-photo img\{filter:saturate\(1\.05\) sepia\(\.16\) contrast\(1\.04\) brightness\(\.97\)\}/);
       assert.match(css, /\.about-photo:after\{[\s\S]*mix-blend-mode:soft-light/);
+    });
+
+    await t.test("serviços públicos usam Bento Grid dinâmica e acessível", async () => {
+      const [publicSite, css, servicesRoute] = await Promise.all([
+        readFile("app/public-site.tsx", "utf8"),
+        readFile("app/globals.css", "utf8"),
+        readFile("app/api/services/route.ts", "utf8"),
+      ]);
+      const servicesMarkup = publicSite.match(
+        /<section className="services"[\s\S]*?<\/section>/,
+      )?.[0] ?? "";
+
+      assert.match(publicSite, /const serviceCardVariants = \["featured", "vertical", "medium", "horizontal"/);
+      assert.match(servicesMarkup, /displayServices\.map\(\(service, index\)/);
+      assert.match(servicesMarkup, /index % serviceCardVariants\.length/);
+      assert.match(servicesMarkup, /data-variant=\{variant\}/);
+      assert.match(servicesMarkup, /className="service-card-link"/);
+      assert.match(servicesMarkup, /href="#marcar"/);
+      assert.match(servicesMarkup, /onClick=\{\(\) => update\("serviceId", service\.id\)\}/);
+      assert.match(servicesMarkup, /aria-describedby=\{`service-description-\$\{service\.id\}`\}/);
+      assert.match(servicesMarkup, /service-card-visual \$\{visual \? "has-image" : "is-abstract"\}/);
+      assert.doesNotMatch(servicesMarkup, /service-card-action|>Marcar</);
+      assert.match(servicesRoute, /eq\(businessServices\.isActive, true\)/);
+
+      assert.match(css, /\.service-grid\{[\s\S]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+      assert.match(css, /\.service-card-featured\{grid-column:1\/-1;grid-row:span 3\}/);
+      assert.match(css, /\.service-card-vertical\{grid-row:span 4\}/);
+      assert.match(css, /\.service-card-link:focus-visible/);
+      assert.match(css, /\.service-card:hover \.service-card-visual img/);
+      assert.match(css, /@media\(max-width:768px\)\{[\s\S]*\.public-site \.service-grid\{[\s\S]*grid-template-columns:minmax\(0,1fr\)/);
+      assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*\.public-site \.service-card-visual img\{transition:none!important/);
     });
 
     await t.test("CTA final mantém a âncora de marcação e composição editorial responsiva", async () => {

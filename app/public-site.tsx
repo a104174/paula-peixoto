@@ -22,6 +22,15 @@ const gallery = [
   ["/portfolio/bob.jpg", "Corte moderno"], ["/portfolio/pedicure.jpg", "Pedicure clássica"],
   ["/portfolio/coloracao.jpg", "Coloração luminosa"], ["/portfolio/nail-art.jpg", "Nail art"],
 ];
+const serviceCardVariants = ["featured", "vertical", "medium", "horizontal", "medium", "medium"] as const;
+const serviceVisuals = [
+  { src: "/portfolio/bob.jpg", width: 512, height: 318 },
+  { src: "/portfolio/balayage.jpg", width: 512, height: 279 },
+  { src: "/portfolio/coloracao.jpg", width: 512, height: 286 },
+  null,
+  { src: "/portfolio/manicure.jpg", width: 512, height: 279 },
+  { src: "/portfolio/pedicure.jpg", width: 512, height: 318 },
+] as const;
 const initialForm: { serviceId: string; date: string; time: string; name: string; phone: string; email: string; notes: string } = {
   serviceId: services[0].id, date: "", time: "", name: "", phone: "", email: "", notes: "",
 };
@@ -375,11 +384,6 @@ export function PublicSite() {
     setMenuOpen(false);
     requestAnimationFrame(() => mobileMenuButtonRef.current?.focus());
   }
-  function chooseService(id: string) {
-    update("serviceId", id);
-    const bookingSection = document.getElementById("marcar");
-    if (bookingSection) scheduleScrollToLandingTarget(bookingSection);
-  }
   function chooseDate(date: string) {
     if (date < minDate || calendarAvailability[date]?.status !== "available") return;
     setForm((current) => ({ ...current, date, time: "" }));
@@ -568,10 +572,56 @@ export function PublicSite() {
 
       <section className="services" id="servicos"><div className="shell">
         <div className="section-heading"><span className="eyebrow">Serviços</span><h2>Tudo o que precisa para cuidar de si</h2><p>Cada serviço é pensado à medida, com tempo, atenção e respeito pelo seu estilo.</p></div>
-        <div className="service-grid">{displayServices.map((service) => <article className="service-card" key={service.id}>
-          <div className="service-icon" aria-hidden="true">{service.icon}</div><h3>{service.name}</h3><p>{service.description}</p>
-          <div className="service-meta"><span>{service.duration} min</span><button type="button" onClick={() => chooseService(service.id)} style={{border:0,padding:0,background:"transparent",color:"inherit",fontWeight:"inherit"}}>A partir de {service.price} · Marcar →</button></div>
-        </article>)}</div>
+        <div className="service-grid">
+          {displayServices.map((service, index) => {
+            const variant = serviceCardVariants[index % serviceCardVariants.length];
+            const visual = serviceVisuals[index % serviceVisuals.length];
+            return (
+              <article
+                className={`service-card service-card-${variant} service-tone-${index % 4}`}
+                data-variant={variant}
+                key={service.id}
+              >
+                <a
+                  className="service-card-link"
+                  href="#marcar"
+                  aria-describedby={`service-description-${service.id}`}
+                  onClick={() => update("serviceId", service.id)}
+                >
+                  <div className="service-card-copy">
+                    <div className="service-card-kicker">
+                      <span aria-hidden="true">{service.icon}</span>
+                      <small>Serviço {String(index + 1).padStart(2, "0")}</small>
+                    </div>
+                    <h3>{service.name}</h3>
+                    <p id={`service-description-${service.id}`}>{service.description}</p>
+                    <dl className="service-card-meta">
+                      <div><dt>Duração</dt><dd>{service.duration} min</dd></div>
+                      <div><dt>Preço</dt><dd>{service.price}</dd></div>
+                    </dl>
+                  </div>
+                  <div className={`service-card-visual ${visual ? "has-image" : "is-abstract"}`} aria-hidden="true">
+                    {visual ? (
+                      <Image
+                        src={visual.src}
+                        alt=""
+                        width={visual.width}
+                        height={visual.height}
+                        sizes="(max-width: 768px) calc(100vw - 24px), (max-width: 1200px) 42vw, 520px"
+                        unoptimized
+                      />
+                    ) : (
+                      <>
+                        <span className="service-visual-icon">{service.icon}</span>
+                        <i /><i /><i />
+                      </>
+                    )}
+                  </div>
+                </a>
+              </article>
+            );
+          })}
+        </div>
       </div></section>
 
       <section className="about" id="sobre"><div className="shell about-grid">
